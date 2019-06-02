@@ -4,11 +4,11 @@
 # ============================================================================
 """Customized tensorflow keras model with customized vector quantization layer"""
 
-import os, time
+import os
+import time
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Layer, Dense
-import numpy as np
 
 
 # noinspection PyAttributeOutsideInit
@@ -83,7 +83,8 @@ class VQLayer(Layer):
 
     @staticmethod
     def compute_output_shape(input_shape):
-        return tf.TensorShape(input_shape)
+        # return tf.TensorShape(input_shape)
+        return input_shape
 
     # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
@@ -110,6 +111,13 @@ class MyModel(Model):
         # Define your forward pass here,
         # using layers you previously defined (in `__init__`).
         x = self.dense_1(inputs)
+        # dens1 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(xin)
+        # dens2 = Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens1)
+        # vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)(dens2)
+        # dens3 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(vq_layer)
+        # outputs = Dense(70, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens3)
+        # model = Model(inputs=xin, outputs=outputs, name='vae')
+        # model.add_loss(vq_layer.pkgs['loss'])
         return self.dense_2(x)
 
     def compute_output_shape(self, input_shape):
@@ -121,6 +129,10 @@ class MyModel(Model):
         return tf.TensorShape(shape)
 
 
+def split_xy(arr, id):
+    return tf.concat(arr[:id], arr[id + 1:]), arr[id]
+
+
 if __name__ == '__main__':
     # import os
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
@@ -130,20 +142,24 @@ if __name__ == '__main__':
     log_dir = os.path.join(os.path.join(os.curdir, "logs"), time.strftime("run_%Y_%m_%d-%H_%M_%S"))
 
     # test layer
-    xin = tf.random.normal([20000, 150], mean=0.7, stddev=0.5).numpy()
-    D = 30
-    K = 100
-    beta = 0.15
+    idx = 0
+    num_fts = 15
+    indices = [i for i in range(num_fts + 1) if i != idx]
+    batch = 64
 
+    xin = tf.data.TextLineDataset('trw/nltcs.ts.data').map(lambda x: tf.strings.to_number(tf.strings.split(x, ','))) \
+        .map(lambda x: (tf.gather(x, indices), tf.gather(x, indices))).batch(batch).shuffle(buffer_size=1024)
+
+    D = 10
+    K = 20
+    beta = 0.15
     vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)
     model = tf.keras.Sequential([
-        Dense(80, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(50, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
         Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
         vq_layer,
-        Dense(50, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(80, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(150, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        Dense(num_fts, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
     ])
     opt = tf.keras.optimizers.Adam(lr=0.001, decay=0.)
     model.compile(optimizer=opt, loss='mse', metrics=['accuracy'])
@@ -152,12 +168,4 @@ if __name__ == '__main__':
         # tf.keras.callbacks.EarlyStopping(patience=100, monitor='val_loss'),
         tf.keras.callbacks.TensorBoard(log_dir=log_dir)
     ]
-    model.fit(xin, xin, batch_size=128, epochs=1000, callbacks=callbacks, validation_data=None)
-
-    # dens1 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(xin)
-    # dens2 = Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens1)
-    # vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)(dens2)
-    # dens3 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(vq_layer)
-    # outputs = Dense(70, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens3)
-    # model = Model(inputs=xin, outputs=outputs, name='vae')
-    # model.add_loss(vq_layer.pkgs['loss'])
+    model.fit(xin, epochs=200, callbacks=callbacks)
