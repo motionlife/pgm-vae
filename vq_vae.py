@@ -111,11 +111,11 @@ class MyModel(Model):
         # Define your forward pass here,
         # using layers you previously defined (in `__init__`).
         x = self.dense_1(inputs)
-        # dens1 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(xin)
-        # dens2 = Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens1)
+        # dens1 = Dense(30, activation='relu')(xin)
+        # dens2 = Dense(D, activation='relu')(dens1)
         # vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)(dens2)
-        # dens3 = Dense(30, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(vq_layer)
-        # outputs = Dense(70, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001))(dens3)
+        # dens3 = Dense(30, activation='relu')(vq_layer)
+        # outputs = Dense(70, activation='relu')(dens3)
         # model = Model(inputs=xin, outputs=outputs, name='vae')
         # model.add_loss(vq_layer.pkgs['loss'])
         return self.dense_2(x)
@@ -135,30 +135,30 @@ if __name__ == '__main__':
     log_dir = os.path.join(os.path.join(os.curdir, "logs"), time.strftime("run_%Y_%m_%d-%H_%M_%S"))
 
     # test layer
-    batch = 128
-    D = 10
-    K = 20
-    beta = 0.18
-    lb_id = 0
+    batch = 100
+    D = 7
+    K = 50
+    beta = 0.25
 
     train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
         .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
     num_vars = next(iter(train_ds)).shape[-1]
     train_xy = tf.stack([x for x in train_ds])
+    lb_id = 0
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
 
     vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)
     model = tf.keras.Sequential([
-        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        vq_layer,
-        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(num_vars - 1, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-    ])
-    opt = tf.keras.optimizers.Adam(lr=0.001, decay=0.)
-    model.compile(optimizer=opt, loss='mse', metrics=['accuracy'])
+        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        vq_layer,  # todo: use dropout layer to do regularization
+        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        Dense(num_vars - 1, activation='sigmoid'),
+    ])  # make sure the output of the model is [0,1]
+    opt = tf.keras.optimizers.Adam(lr=0.001)
+    model.compile(optimizer=opt, loss='mse', metrics=['mse'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
     model.fit(train_x, train_x, epochs=500, batch_size=batch, callbacks=callbacks)
