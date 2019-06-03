@@ -34,7 +34,7 @@ class VQLayer(Layer):
         """
         with tf.control_dependencies([tf.Assert(tf.equal(input_shape[-1], self._embedding_dim), [input_shape[-1]])]):
             shape = tf.TensorShape([self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.glorot_normal(seed=7)  # uniform_unit_scaling(seed=7)?
+        initializer = tf.keras.initializers.lecun_normal(seed=7)  # he_normal(seed=7)?
         self._embeddings = self.add_weight(name='embeddings',
                                            shape=shape,
                                            initializer=initializer,
@@ -53,7 +53,7 @@ class VQLayer(Layer):
                      + tf.reduce_sum(self._embeddings ** 2, 0, keepdims=True))
 
         encoding_indices = tf.argmin(distances, 1)
-        encodings = tf.one_hot(encoding_indices, self._num_embeddings)
+        # encodings = tf.one_hot(encoding_indices, self._num_embeddings)
         encoding_indices = tf.reshape(encoding_indices, tf.shape(inputs)[:-1])
         quantized = tf.nn.embedding_lookup(tf.transpose(self._embeddings.read_value()), encoding_indices)
         # calculate quantization layer loss
@@ -63,13 +63,13 @@ class VQLayer(Layer):
         self.add_loss(loss)
         # make sure grad(Zq(x)) = grad(Ze(x))
         quantized = inputs + tf.stop_gradient(quantized - inputs)
-        avg_probs = tf.reduce_mean(encodings, 0)
-        perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10)))  # perplexity = exp(H(p))
-        self._pkgs = {'quantized': quantized,
-                      'loss': loss,
-                      'perplexity': perplexity,
-                      'encodings': encodings,
-                      'encoding_indices': encoding_indices, }
+        # avg_probs = tf.reduce_mean(encodings, 0)
+        # perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10))) # perplexity = exp(H(p))
+        # self._pkgs = {'quantized': quantized,
+        #               'loss': loss,
+        #               'perplexity': perplexity,
+        #               'encodings': encodings,
+        #               'encoding_indices': encoding_indices, }
 
         return quantized
 
@@ -129,43 +129,36 @@ class MyModel(Model):
         return tf.TensorShape(shape)
 
 
-def split_xy(arr, id):
-    return tf.concat(arr[:id], arr[id + 1:]), arr[id]
-
-
 if __name__ == '__main__':
     # import os
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-    if 'session' in locals() and session is not None:
-        print('Close interactive session')
-        session.close()
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # using cpu
     log_dir = os.path.join(os.path.join(os.curdir, "logs"), time.strftime("run_%Y_%m_%d-%H_%M_%S"))
 
     # test layer
-    idx = 0
-    num_fts = 15
-    indices = [i for i in range(num_fts + 1) if i != idx]
-    batch = 64
-
-    xin = tf.data.TextLineDataset('trw/nltcs.ts.data').map(lambda x: tf.strings.to_number(tf.strings.split(x, ','))) \
-        .map(lambda x: (tf.gather(x, indices), tf.gather(x, indices))).batch(batch).shuffle(buffer_size=1024)
-
+    batch = 128
     D = 10
     K = 20
-    beta = 0.15
+    beta = 0.18
+    lb_id = 0
+
+    train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
+        .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
+    num_vars = next(iter(train_ds)).shape[-1]
+    train_xy = tf.stack([x for x in train_ds])
+    train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
+    train_y = train_xy[:, lb_id]
+
     vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)
     model = tf.keras.Sequential([
         Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
         Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
         vq_layer,
+        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
         Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        Dense(num_fts, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        Dense(num_vars - 1, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
     ])
     opt = tf.keras.optimizers.Adam(lr=0.001, decay=0.)
     model.compile(optimizer=opt, loss='mse', metrics=['accuracy'])
-    callbacks = [
-        # Interrupt training if `val_loss` stops improving for over 100 epochs
-        # tf.keras.callbacks.EarlyStopping(patience=100, monitor='val_loss'),
-        tf.keras.callbacks.TensorBoard(log_dir=log_dir)
-    ]
-    model.fit(xin, epochs=200, callbacks=callbacks)
+    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
+    model.fit(train_x, train_x, epochs=500, batch_size=batch, callbacks=callbacks)
