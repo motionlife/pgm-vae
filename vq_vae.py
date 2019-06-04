@@ -9,9 +9,9 @@ import time
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Layer, Dense
+from parallel_dense import ParallelDense
 
 
-# noinspection PyAttributeOutsideInit
 class VQLayer(Layer):
     """Re-implementation of VQ-VAE https://arxiv.org/abs/1711.00937.
     Args:
@@ -34,7 +34,7 @@ class VQLayer(Layer):
         """
         with tf.control_dependencies([tf.Assert(tf.equal(input_shape[-1], self._embedding_dim), [input_shape[-1]])]):
             shape = tf.TensorShape([self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.lecun_normal(seed=7)  # he_normal(seed=7)?
+        initializer = tf.keras.initializers.GlorotUniform(seed=7)  # he_uniform(seed=7)?
         self._embeddings = self.add_weight(name='embeddings',
                                            shape=shape,
                                            initializer=initializer,
@@ -98,35 +98,33 @@ class VQLayer(Layer):
 
 
 class MyModel(Model):
-    """A customized model derived from Keras model"""
+    """A customized model derived from Keras model for jumbo training"""
 
-    def __init__(self, num_classes=10):
+    def __init__(self, fts=15, emb=30, dim=8, cost=0.25):
         super(MyModel, self).__init__(name='vq_vae_model')
-        self.num_classes = num_classes
-        # Define your layers here.
-        self.dense_1 = Dense(32, activation='relu')
-        self.dense_2 = Dense(num_classes, activation='sigmoid')
+        # todo: try dropout layer to do regularization
+        self.dense_1 = ParallelDense(12, activation='relu')
+        self.dense_2 = ParallelDense(10, activation='relu')
+        self.dense_3 = ParallelDense(dim, activation='relu')
+        self.vq_layer = VQLayer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
+        self.dense_4 = ParallelDense(10, activation='relu')
+        self.dense_5 = ParallelDense(12, activation='relu')
+        self.dense_6 = ParallelDense(fts, activation='sigmoid')  # make sure the output of the model is [0,1]
 
     def call(self, inputs):
-        # Define your forward pass here,
-        # using layers you previously defined (in `__init__`).
-        x = self.dense_1(inputs)
-        # dens1 = Dense(30, activation='relu')(xin)
-        # dens2 = Dense(D, activation='relu')(dens1)
-        # vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)(dens2)
-        # dens3 = Dense(30, activation='relu')(vq_layer)
-        # outputs = Dense(70, activation='relu')(dens3)
-        # model = Model(inputs=xin, outputs=outputs, name='vae')
-        # model.add_loss(vq_layer.pkgs['loss'])
-        return self.dense_2(x)
+        x = tf.transpose(inputs, [1, 0, 2])
+        x = self.dense_1(x)
+        x = self.dense_2(x)
+        x = self.dense_3(x)
+        x = self.vq_layer(x)
+        x = self.dense_4(x)
+        x = self.dense_5(x)
+        x = self.dense_6(x)
+        return tf.transpose(x, [1, 0, 2])
 
-    def compute_output_shape(self, input_shape):
-        # You need to override this function if you want to use the subclassed model
-        # as part of a functional-style model.
-        # Otherwise, this method is optional.
-        shape = tf.TensorShape(input_shape).as_list()
-        shape[-1] = self.num_classes
-        return tf.TensorShape(shape)
+    @staticmethod
+    def compute_output_shape(input_shape):
+        return input_shape
 
 
 if __name__ == '__main__':
@@ -137,7 +135,7 @@ if __name__ == '__main__':
     # test layer
     batch = 100
     D = 8
-    K = 70
+    K = 50
     beta = 0.2
 
     train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
@@ -147,17 +145,9 @@ if __name__ == '__main__':
     lb_id = 0
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
-    # todo: use dropout layer to do regularization
-    model = tf.keras.Sequential([
-        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        Dense(10, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta),
-        Dense(10, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        Dense(num_vars - 1, activation='sigmoid'),
-    ])  # make sure the output of the model is [0,1]
+
+    model = MyModel(fts=num_vars - 1, emb=K, dim=D, cost=beta)
     opt = tf.keras.optimizers.Adam(lr=0.001)
-    model.compile(optimizer=opt, loss='mse', metrics=['mse'])  # loss=mse better than categorical entropy?
+    model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
     model.fit(train_x, train_x, epochs=500, batch_size=batch, callbacks=callbacks)
