@@ -136,9 +136,9 @@ if __name__ == '__main__':
 
     # test layer
     batch = 100
-    D = 7
-    K = 50
-    beta = 0.25
+    D = 8
+    K = 70
+    beta = 0.2
 
     train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
         .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
@@ -147,15 +147,14 @@ if __name__ == '__main__':
     lb_id = 0
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
-
-    vq_layer = VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta)
+    # todo: use dropout layer to do regularization
     model = tf.keras.Sequential([
-        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
         Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
+        Dense(10, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
         Dense(D, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        vq_layer,  # todo: use dropout layer to do regularization
+        VQLayer(embedding_dim=D, num_embeddings=K, commitment_cost=beta),
+        Dense(10, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
         Dense(12, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
-        Dense(14, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0002)),
         Dense(num_vars - 1, activation='sigmoid'),
     ])  # make sure the output of the model is [0,1]
     opt = tf.keras.optimizers.Adam(lr=0.001)
