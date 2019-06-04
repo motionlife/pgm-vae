@@ -33,8 +33,8 @@ class VQLayer(Layer):
         Create trainable layer weights (embedding dictionary) here
         """
         with tf.control_dependencies([tf.Assert(tf.equal(input_shape[-1], self._embedding_dim), [input_shape[-1]])]):
-            shape = tf.TensorShape([self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.GlorotUniform(seed=7)  # he_uniform(seed=7)?
+            shape = tf.TensorShape([input_shape[0], self._embedding_dim, self._num_embeddings])
+        initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
         self._embeddings = self.add_weight(name='embeddings',
                                            shape=shape,
                                            initializer=initializer,
@@ -47,30 +47,28 @@ class VQLayer(Layer):
         if training:
             print("Training process begin...")
 
-        flat_inputs = tf.reshape(inputs, [-1, self._embedding_dim])
-        distances = (tf.reduce_sum(flat_inputs ** 2, 1, keepdims=True)
-                     - 2 * tf.matmul(flat_inputs, self._embeddings)
-                     + tf.reduce_sum(self._embeddings ** 2, 0, keepdims=True))
+        distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
+                     - 2 * tf.matmul(inputs, self._embeddings)
+                     + tf.reduce_sum(self._embeddings ** 2, 1, keepdims=True))
 
-        encoding_indices = tf.argmin(distances, 1)
-        # encodings = tf.one_hot(encoding_indices, self._num_embeddings)
-        encoding_indices = tf.reshape(encoding_indices, tf.shape(inputs)[:-1])
-        quantized = tf.nn.embedding_lookup(tf.transpose(self._embeddings.read_value()), encoding_indices)
+        enc_idx = tf.argmin(distances, 2)
+        # encodings = tf.one_hot(enc_idx, self._num_embeddings)
+        quantized = tf.gather(tf.transpose(self._embeddings.read_value(), [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+        #  tf.compat.v1.batch_gather(tf.transpose(emb,[0,2,1]), idx)
         # calculate quantization layer loss
         e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
         q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
         loss = q_latent_loss + self._commitment_cost * e_latent_loss
         self.add_loss(loss)
-        # make sure grad(Zq(x)) = grad(Ze(x))
-        quantized = inputs + tf.stop_gradient(quantized - inputs)
+
+        quantized = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
         # avg_probs = tf.reduce_mean(encodings, 0)
         # perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10))) # perplexity = exp(H(p))
         # self._pkgs = {'quantized': quantized,
         #               'loss': loss,
         #               'perplexity': perplexity,
         #               'encodings': encodings,
-        #               'encoding_indices': encoding_indices, }
-
+        #               'enc_idx': enc_idx, }
         return quantized
 
     @property
@@ -142,9 +140,10 @@ if __name__ == '__main__':
         .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
     num_vars = next(iter(train_ds)).shape[-1]
     train_xy = tf.stack([x for x in train_ds])
-    lb_id = 0
+    lb_id = 1
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
+    train_x = tf.expand_dims(train_x, 1) # for testing
 
     model = MyModel(fts=num_vars - 1, emb=K, dim=D, cost=beta)
     opt = tf.keras.optimizers.Adam(lr=0.001)
