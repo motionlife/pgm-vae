@@ -89,6 +89,8 @@ class ParallelDense(Layer):
         self.bias_constraint = constraints.get(bias_constraint)
 
     def build(self, input_shape):
+        if input_shape.rank != 3:
+            raise ValueError("Input shape must be 3")
         last_dim = input_shape[-1]
         num_dense = input_shape[0]
         self.kernel = self.add_weight(
