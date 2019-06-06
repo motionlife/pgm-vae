@@ -10,9 +10,10 @@ import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Layer, Dense
 from parallel_dense import ParallelDense
+from tensorflow.python.training import moving_averages
 
 
-class VQLayer(Layer):
+class VectorQuantizer(Layer):
     """Re-implementation of VQ-VAE https://arxiv.org/abs/1711.00937.
     Args:
         embedding_dim: integer representing the dimensionality of the tensors in the
@@ -25,37 +26,37 @@ class VQLayer(Layer):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
         self._commitment_cost = commitment_cost
-        super(VQLayer, self).__init__(**kwargs)
+        super(VectorQuantizer, self).__init__(**kwargs)
 
     def build(self, input_shape):
         """
         The __call__ method of layer will automatically run build the first time it is called.
         Create trainable layer weights (embedding dictionary) here
         """
-        with tf.control_dependencies([tf.Assert(tf.equal(input_shape[-1], self._embedding_dim), [input_shape[-1]])]):
-            shape = tf.TensorShape([input_shape[0], self._embedding_dim, self._num_embeddings])
+        if input_shape.rank != 3:
+            raise ValueError("Input shape must be 3")
+        last_dim = input_shape[-1]
+        num_fts = input_shape[0]
+        with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
+            shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
         self._embeddings = self.add_weight(name='embeddings',
                                            shape=shape,
                                            initializer=initializer,
                                            trainable=True)
         # Make sure to call the `build` method at the end
-        super(VQLayer, self).build(input_shape)
+        super(VectorQuantizer, self).build(input_shape)
 
-    def call(self, inputs, training=None):
+    def call(self, inputs):
         """ Define the forward computation pass """
-        if training:
-            print("Training process begin...")
-
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, self._embeddings)
                      + tf.reduce_sum(self._embeddings ** 2, 1, keepdims=True))
 
         enc_idx = tf.argmin(distances, 2)
         # encodings = tf.one_hot(enc_idx, self._num_embeddings)
-        quantized = tf.gather(tf.transpose(self._embeddings.read_value(), [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+        quantized = tf.gather(tf.transpose(self._embeddings, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
         #  tf.compat.v1.batch_gather(tf.transpose(emb,[0,2,1]), idx)
-        # calculate quantization layer loss
         e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
         q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
         loss = q_latent_loss + self._commitment_cost * e_latent_loss
@@ -86,8 +87,8 @@ class VQLayer(Layer):
 
     # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
-        base_config = super(VQLayer, self).get_config()
-        # base_config['num_embeddings'] = self._num_embeddings
+        base_config = super(VectorQuantizer, self).get_config()
+        # base_config['embeddings'] = self._embeddings
         return base_config
 
     @classmethod
@@ -95,16 +96,148 @@ class VQLayer(Layer):
         return cls(**config)
 
 
-class MyModel(Model):
+class VectorQuantizerEMA(Layer):
+    """Sonnet module representing the VQ-VAE layer.
+
+    Implements a slightly modified version of the algorithm presented in
+    'Neural Discrete Representation Learning' by van den Oord et al.
+    https://arxiv.org/abs/1711.00937
+
+    The difference between VectorQuantizerEMA and VectorQuantizer is that
+    this module uses exponential moving averages to update the embedding vectors
+    instead of an auxiliary loss. This has the advantage that the embedding
+    updates are independent of the choice of optimizer (SGD, RMSProp, Adam, K-Fac,
+    ...) used for the encoder, decoder and other parts of the architecture. For
+    most experiments the EMA version trains faster than the non-EMA version.
+
+    Input any tensor to be quantized. Last dimension will be used as space in
+    which to quantize. All other dimensions will be flattened and will be seen
+    as different examples to quantize.
+
+    The output tensor will have the same shape as the input.
+
+    For example a tensor with shape [16, 32, 32, 64] will be reshaped into
+    [16384, 64] and all 16384 vectors (each of 64 dimensions)  will be quantized
+    independently.
+
+    Args:
+      embedding_dim: integer representing the dimensionality of the tensors in the
+        quantized space. Inputs to the modules must be in this format as well.
+      num_embeddings: integer, the number of vectors in the quantized space.
+      commitment_cost: scalar which controls the weighting of the loss terms (see
+        equation 4 in the paper).
+      decay: float, decay for the moving averages.
+      epsilon: small float constant to avoid numerical instability.
+    """
+
+    def __init__(self, embedding_dim, num_embeddings, commitment_cost, decay,
+                 epsilon=1e-5, **kwargs):
+        self._embedding_dim = embedding_dim
+        self._num_embeddings = num_embeddings
+        self._decay = decay
+        self._commitment_cost = commitment_cost
+        self._epsilon = epsilon
+        super(VectorQuantizerEMA, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        if input_shape.rank != 3:
+            raise ValueError("Input shape must be 3")
+        last_dim = input_shape[-1]
+        num_fts = input_shape[0]
+        with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
+            shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
+        initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
+        # w is a matrix with an embedding in each column. When training, the
+        # embedding is assigned to be the average of all inputs assigned to that  embedding.
+        self._w = self.add_weight(name='embeddings', shape=shape,
+                                  initializer=initializer, trainable=False, use_resource=True)
+        self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_fts, self._num_embeddings],
+                                                 initializer=tf.constant_initializer(0),
+                                                 trainable=False, use_resource=True)
+        self._ema_w = self.add_weight(name='ema_dw', shape=shape, trainable=False, use_resource=True)
+        self._ema_w.assign(self._w.read_value())
+        super(VectorQuantizerEMA, self).build(input_shape)
+
+    def call(self, inputs, training=None):
+        """Connects the module to some inputs.
+
+        Args:
+          inputs: Tensor, final dimension must be equal to embedding_dim. All other
+            leading dimensions will be flattened and treated as a large batch.
+          training: boolean, whether this connection is to training data. When
+            this is set to False, the internal moving average statistics will not be
+            updated.
+
+        Returns:
+          dict containing the following keys and values:
+            quantize: Tensor containing the quantized version of the input.
+            loss: Tensor containing the loss to optimize.
+            perplexity: Tensor containing the perplexity of the encodings.
+            encodings: Tensor containing the discrete encodings, ie which element
+              of the quantized space each input element was mapped to.
+            enc_idx: Tensor containing the discrete encoding indices, ie
+              which element of the quantized space each input element was mapped to.
+        """
+        with tf.control_dependencies([inputs]):
+            w = self._w.read_value()
+
+        distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
+                     - 2 * tf.matmul(inputs, w)
+                     + tf.reduce_sum(w ** 2, 1, keepdims=True))
+        enc_idx = tf.argmin(distances, 2)
+        encodings = tf.one_hot(enc_idx, self._num_embeddings)
+        quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+        e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
+
+        if training:
+            updated_ema_cluster_size = moving_averages.assign_moving_average(
+                self._ema_cluster_size, tf.reduce_sum(encodings, 1), self._decay)
+            dw = tf.matmul(tf.transpose(inputs, [0, 2, 1]), encodings)
+            updated_ema_w = moving_averages.assign_moving_average(self._ema_w, dw, self._decay)
+            n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
+            updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
+                    n + self._num_embeddings * self._epsilon) * n
+            normalised_updated_ema_w = (
+                    updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
+            with tf.control_dependencies([e_latent_loss]):
+                update_w = self._w.assign(normalised_updated_ema_w)
+                with tf.control_dependencies([update_w]):
+                    loss = self._commitment_cost * e_latent_loss
+
+        else:
+            loss = self._commitment_cost * e_latent_loss
+
+        quantized = inputs + tf.stop_gradient(quantized - inputs)
+        self.add_loss(loss)
+        return quantized
+        # avg_probs = tf.reduce_mean(encodings, 0)
+        # perplexity = tf.exp(- tf.reduce_sum(avg_probs * tf.log(avg_probs + 1e-10)))
+        # return {'quantize': quantized,
+        #         'loss': loss,
+        #         'perplexity': perplexity,
+        #         'encodings': encodings,
+        #         'enc_idx': enc_idx, }
+
+    @property
+    def embeddings(self):
+        return self._w
+
+    @staticmethod
+    def compute_output_shape(input_shape):
+        return input_shape
+
+
+class ParVAE(Model):
     """A customized model derived from Keras model for jumbo training"""
 
     def __init__(self, fts=15, emb=30, dim=8, cost=0.25):
-        super(MyModel, self).__init__(name='vq_vae_model')
-        # todo: try dropout layer to do regularization
+        super(ParVAE, self).__init__(name='parallel_vae')
+        # may try dropout layer to do regularization
         self.dense_1 = ParallelDense(12, activation='relu')
         self.dense_2 = ParallelDense(10, activation='relu')
         self.dense_3 = ParallelDense(dim, activation='relu')
-        self.vq_layer = VQLayer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
+        # self.vq_layer = VectorQuantizer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
+        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=0.99)
         self.dense_4 = ParallelDense(10, activation='relu')
         self.dense_5 = ParallelDense(12, activation='relu')
         self.dense_6 = ParallelDense(fts, activation='sigmoid')  # make sure the output of the model is [0,1]
@@ -140,12 +273,12 @@ if __name__ == '__main__':
         .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
     num_vars = next(iter(train_ds)).shape[-1]
     train_xy = tf.stack([x for x in train_ds])
-    lb_id = 1
+    lb_id = 5
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
-    train_x = tf.expand_dims(train_x, 1) # for testing
+    train_x = tf.expand_dims(train_x, 1)  # for testing
 
-    model = MyModel(fts=num_vars - 1, emb=K, dim=D, cost=beta)
+    model = ParVAE(fts=num_vars - 1, emb=K, dim=D, cost=beta)
     opt = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
