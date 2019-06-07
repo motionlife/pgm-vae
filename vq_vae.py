@@ -33,36 +33,38 @@ class VectorQuantizer(Layer):
         The __call__ method of layer will automatically run build the first time it is called.
         Create trainable layer weights (embedding dictionary) here
         """
+        input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
-            raise ValueError("Input shape must be 3")
+            raise ValueError("The input tensor must be rank of 3")
         last_dim = input_shape[-1]
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
-        self._embeddings = self.add_weight(name='embeddings',
-                                           shape=shape,
-                                           initializer=initializer,
-                                           trainable=True)
-        # Make sure to call the `build` method at the end
+        self.embedings = self.add_weight(name='embeddings',
+                                         shape=shape,
+                                         initializer=initializer,
+                                         trainable=True)
+        # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
     def call(self, inputs):
         """ Define the forward computation pass """
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
-                     - 2 * tf.matmul(inputs, self._embeddings)
-                     + tf.reduce_sum(self._embeddings ** 2, 1, keepdims=True))
+                     - 2 * tf.matmul(inputs, self.embedings)
+                     + tf.reduce_sum(self.embedings ** 2, 1, keepdims=True))
 
         enc_idx = tf.argmin(distances, 2)
-        # encodings = tf.one_hot(enc_idx, self._num_embeddings)
-        quantized = tf.gather(tf.transpose(self._embeddings, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
-        #  tf.compat.v1.batch_gather(tf.transpose(emb,[0,2,1]), idx)
+        with tf.control_dependencies([enc_idx]):  # batch gather
+            quantized = tf.gather(tf.transpose(self.embedings, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
         e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
         q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
         loss = q_latent_loss + self._commitment_cost * e_latent_loss
         self.add_loss(loss)
 
         quantized = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
+        return quantized
+        # encodings = tf.one_hot(enc_idx, self._num_embeddings)
         # avg_probs = tf.reduce_mean(encodings, 0)
         # perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10))) # perplexity = exp(H(p))
         # self._pkgs = {'quantized': quantized,
@@ -70,15 +72,6 @@ class VectorQuantizer(Layer):
         #               'perplexity': perplexity,
         #               'encodings': encodings,
         #               'enc_idx': enc_idx, }
-        return quantized
-
-    @property
-    def embeddings(self):
-        return self._embeddings
-
-    @property
-    def pkgs(self):
-        return self._pkgs
 
     @staticmethod
     def compute_output_shape(input_shape):
@@ -88,7 +81,6 @@ class VectorQuantizer(Layer):
     # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
         base_config = super(VectorQuantizer, self).get_config()
-        # base_config['embeddings'] = self._embeddings
         return base_config
 
     @classmethod
@@ -97,9 +89,7 @@ class VectorQuantizer(Layer):
 
 
 class VectorQuantizerEMA(Layer):
-    """Sonnet module representing the VQ-VAE layer.
-
-    Implements a slightly modified version of the algorithm presented in
+    """ Implements a slightly modified version of the algorithm presented in
     'Neural Discrete Representation Learning' by van den Oord et al.
     https://arxiv.org/abs/1711.00937
 
@@ -140,6 +130,7 @@ class VectorQuantizerEMA(Layer):
         super(VectorQuantizerEMA, self).__init__(**kwargs)
 
     def build(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
             raise ValueError("Input shape must be 3")
         last_dim = input_shape[-1]
@@ -150,17 +141,15 @@ class VectorQuantizerEMA(Layer):
         # w is a matrix with an embedding in each column. When training, the
         # embedding is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape,
-                                  initializer=initializer, trainable=False, use_resource=True)
+                                  initializer=initializer, use_resource=True)
         self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_fts, self._num_embeddings],
-                                                 initializer=tf.constant_initializer(0),
-                                                 trainable=False, use_resource=True)
-        self._ema_w = self.add_weight(name='ema_dw', shape=shape, trainable=False, use_resource=True)
+                                                 initializer=tf.constant_initializer(0), use_resource=True)
+        self._ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
 
     def call(self, inputs, training=None):
-        """Connects the module to some inputs.
-
+        """forward pass computation
         Args:
           inputs: Tensor, final dimension must be equal to embedding_dim. All other
             leading dimensions will be flattened and treated as a large batch.
@@ -192,7 +181,7 @@ class VectorQuantizerEMA(Layer):
         if training:
             updated_ema_cluster_size = moving_averages.assign_moving_average(
                 self._ema_cluster_size, tf.reduce_sum(encodings, 1), self._decay)
-            dw = tf.matmul(tf.transpose(inputs, [0, 2, 1]), encodings)
+            dw = tf.matmul(inputs, encodings, transpose_a=True)
             updated_ema_w = moving_averages.assign_moving_average(self._ema_w, dw, self._decay)
             n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
             updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
@@ -218,17 +207,13 @@ class VectorQuantizerEMA(Layer):
         #         'encodings': encodings,
         #         'enc_idx': enc_idx, }
 
-    @property
-    def embeddings(self):
-        return self._w
-
     @staticmethod
     def compute_output_shape(input_shape):
         return input_shape
 
 
 class ParVAE(Model):
-    """A customized model derived from Keras model for jumbo training"""
+    """A customized model derived from Keras model for batch features training"""
 
     def __init__(self, fts=15, emb=30, dim=8, cost=0.25):
         super(ParVAE, self).__init__(name='parallel_vae')
@@ -282,4 +267,4 @@ if __name__ == '__main__':
     opt = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
-    model.fit(train_x, train_x, epochs=500, batch_size=batch, callbacks=callbacks)
+    model.fit(train_x, train_x, epochs=200, batch_size=batch, callbacks=callbacks)
