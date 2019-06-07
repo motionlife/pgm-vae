@@ -89,13 +89,14 @@ class ParallelDense(Layer):
         self.bias_constraint = constraints.get(bias_constraint)
 
     def build(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
-            raise ValueError("Input shape must be 3")
+            raise ValueError("The input tensor must be rank of 3")
         last_dim = input_shape[-1]
-        num_dense = input_shape[0]
+        num_fts = input_shape[0]
         self.kernel = self.add_weight(
-            'kernel',
-            shape=[num_dense, last_dim, self.units],
+            name='kernel',
+            shape=[num_fts, last_dim, self.units],
             initializer=self.kernel_initializer,
             regularizer=self.kernel_regularizer,
             constraint=self.kernel_constraint,
@@ -103,8 +104,8 @@ class ParallelDense(Layer):
             trainable=True)
         if self.use_bias:
             self.bias = self.add_weight(
-                'bias',
-                shape=[num_dense, 1, self.units],
+                name='bias',
+                shape=[num_fts, 1, self.units],
                 initializer=self.bias_initializer,
                 regularizer=self.bias_regularizer,
                 constraint=self.bias_constraint,
@@ -134,8 +135,7 @@ class ParallelDense(Layer):
             'bias_initializer': initializers.serialize(self.bias_initializer),
             'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
             'bias_regularizer': regularizers.serialize(self.bias_regularizer),
-            'activity_regularizer':
-                regularizers.serialize(self.activity_regularizer),
+            'activity_regularizer': regularizers.serialize(self.activity_regularizer),
             'kernel_constraint': constraints.serialize(self.kernel_constraint),
             'bias_constraint': constraints.serialize(self.bias_constraint)
         }
