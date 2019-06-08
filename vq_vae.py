@@ -38,7 +38,7 @@ class VectorQuantizer(Layer):
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
-        self.embedings = self.add_weight(name='embeddings',
+        self._w = self.add_weight(name='embeddings',
                                          shape=shape,
                                          initializer=initializer,
                                          trainable=True)
@@ -48,12 +48,12 @@ class VectorQuantizer(Layer):
     def call(self, inputs):
         """ Define the forward computation pass """
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
-                     - 2 * tf.matmul(inputs, self.embedings)
-                     + tf.reduce_sum(self.embedings ** 2, 1, keepdims=True))
+                     - 2 * tf.matmul(inputs, self._w)
+                     + tf.reduce_sum(self._w ** 2, 1, keepdims=True))
 
         enc_idx = tf.argmin(distances, 2)
         with tf.control_dependencies([enc_idx]):  # batch gather
-            quantized = tf.gather(tf.transpose(self.embedings, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
         e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
         q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
         loss = q_latent_loss + self._commitment_cost * e_latent_loss
@@ -69,6 +69,10 @@ class VectorQuantizer(Layer):
         #               'perplexity': perplexity,
         #               'encodings': encodings,
         #               'enc_idx': enc_idx, }
+
+    @property
+    def embeddings(self):
+        return self._w
 
     @staticmethod
     def compute_output_shape(input_shape):
@@ -177,6 +181,10 @@ class VectorQuantizerEMA(Layer):
         quantized = inputs + tf.stop_gradient(quantized - inputs)
         self.add_loss(loss)
         return quantized
+
+    @property
+    def embeddings(self):
+        return self._w
 
     @staticmethod
     def compute_output_shape(input_shape):
