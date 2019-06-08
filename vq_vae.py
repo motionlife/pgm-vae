@@ -196,14 +196,14 @@ class VectorQuantizerEMA(Layer):
 class ParVAE(Model):
     """A customized model derived from Keras model for batch features training"""
 
-    def __init__(self, fts=15, emb=30, dim=8, cost=0.25):
+    def __init__(self, fts=15, emb=30, dim=8, cost=0.25, decay=0.99):
         super(ParVAE, self).__init__(name='parallel_vae')
         # may try dropout layer to do regularization
         self.dense_1 = ParallelDense(12, activation='relu')
         self.dense_2 = ParallelDense(10, activation='relu')
         self.dense_3 = ParallelDense(dim, activation='relu')
         # self.vq_layer = VectorQuantizer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
-        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=0.99)
+        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay)
         self.dense_4 = ParallelDense(10, activation='relu')
         self.dense_5 = ParallelDense(12, activation='relu')
         self.dense_6 = ParallelDense(fts, activation='sigmoid')  # make sure the output of the model is [0,1]
@@ -242,12 +242,12 @@ if __name__ == '__main__':
     # train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     # train_y = train_xy[:, lb_id]  # train_x = tf.expand_dims(train_x, 1)  # for testing
 
-    num_fts = 17
-    train_ds = tf.data.experimental.CsvDataset('trw/msnbc.ts.data', [0.] * num_fts).shuffle(300_000).map(
-        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_fts - 1]), [num_fts, -1])).batch(batch_size).map(
-        lambda x: (x, x)).prefetch(5)
+    num_vars = 17
+    train_ds = tf.data.experimental.CsvDataset('trw/msnbc.ts.data', [0.] * num_vars).shuffle(300_000).map(
+        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_vars - 1]), [num_vars, -1])).batch(batch_size).map(
+        lambda x: (x, x)).prefetch(7)
 
-    model = ParVAE(fts=num_fts - 1, emb=K, dim=D, cost=beta)
+    model = ParVAE(fts=num_vars - 1, emb=K, dim=D, cost=beta, decay=0.99)
     opt = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
