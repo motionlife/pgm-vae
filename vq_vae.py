@@ -21,6 +21,7 @@ class VectorQuantizer(Layer):
         num_embeddings: integer, the number of vectors in the quantized space. (K)
         commitment_cost: scalar which controls the weighting of the loss terms (beta)
     """
+
     def __init__(self, embedding_dim, num_embeddings, commitment_cost, **kwargs):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
@@ -39,9 +40,9 @@ class VectorQuantizer(Layer):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
         self._w = self.add_weight(name='embeddings',
-                                         shape=shape,
-                                         initializer=initializer,
-                                         trainable=True)
+                                  shape=shape,
+                                  initializer=initializer,
+                                  trainable=True)
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
@@ -110,6 +111,7 @@ class VectorQuantizerEMA(Layer):
       decay: float, decay for the moving averages.
       epsilon: small float constant to avoid numerical instability.
     """
+
     def __init__(self, embedding_dim, num_embeddings, commitment_cost, decay,
                  epsilon=1e-5, **kwargs):
         self._embedding_dim = embedding_dim
@@ -228,22 +230,25 @@ if __name__ == '__main__':
     log_dir = os.path.join(os.path.join(os.curdir, "logs"), time.strftime("run_%Y_%m_%d-%H_%M_%S"))
 
     # test layer
-    batch = 100
+    batch_size = 1024
     D = 8
     K = 50
     beta = 0.2
 
-    train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
-        .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
-    num_vars = next(iter(train_ds)).shape[-1]
-    train_xy = tf.stack([x for x in train_ds])
-    lb_id = 4
-    train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
-    train_y = train_xy[:, lb_id]
-    train_x = tf.expand_dims(train_x, 1)  # for testing
+    # train_ds = tf.data.TextLineDataset('trw/nltcs.ts.data') \
+    #     .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
+    # num_vars = next(iter(train_ds)).shape[-1] # lb_id = 4
+    # train_xy = tf.stack([x for x in train_ds])
+    # train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
+    # train_y = train_xy[:, lb_id]  # train_x = tf.expand_dims(train_x, 1)  # for testing
 
-    model = ParVAE(fts=num_vars - 1, emb=K, dim=D, cost=beta)
+    num_fts = 17
+    train_ds = tf.data.experimental.CsvDataset('trw/msnbc.ts.data', [0.] * num_fts).shuffle(300_000).map(
+        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_fts - 1]), [num_fts, -1])).batch(batch_size).map(
+        lambda x: (x, x)).prefetch(5)
+
+    model = ParVAE(fts=num_fts - 1, emb=K, dim=D, cost=beta)
     opt = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
-    model.fit(train_x, train_x, epochs=300, batch_size=batch, callbacks=callbacks)
+    model.fit(train_ds, epochs=300, callbacks=callbacks)
