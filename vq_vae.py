@@ -21,7 +21,6 @@ class VectorQuantizer(Layer):
         num_embeddings: integer, the number of vectors in the quantized space. (K)
         commitment_cost: scalar which controls the weighting of the loss terms (beta)
     """
-
     def __init__(self, embedding_dim, num_embeddings, commitment_cost, **kwargs):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
@@ -29,13 +28,11 @@ class VectorQuantizer(Layer):
         super(VectorQuantizer, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        """
-        The __call__ method of layer will automatically run build the first time it is called.
-        Create trainable layer weights (embedding dictionary) here
-        """
+        """ The __call__ method of layer will automatically run build the first time it is called.
+        Create trainable layer weights (embedding dictionary) here """
         input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
-            raise ValueError("The input tensor must be rank of 3")
+            raise ValueError("The input tensor must be rank of 3")  # (num_fts, batch_size, input_dense_unit)
         last_dim = input_shape[-1]
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
@@ -100,16 +97,6 @@ class VectorQuantizerEMA(Layer):
     ...) used for the encoder, decoder and other parts of the architecture. For
     most experiments the EMA version trains faster than the non-EMA version.
 
-    Input any tensor to be quantized. Last dimension will be used as space in
-    which to quantize. All other dimensions will be flattened and will be seen
-    as different examples to quantize.
-
-    The output tensor will have the same shape as the input.
-
-    For example a tensor with shape [16, 32, 32, 64] will be reshaped into
-    [16384, 64] and all 16384 vectors (each of 64 dimensions)  will be quantized
-    independently.
-
     Args:
       embedding_dim: integer representing the dimensionality of the tensors in the
         quantized space. Inputs to the modules must be in this format as well.
@@ -119,7 +106,6 @@ class VectorQuantizerEMA(Layer):
       decay: float, decay for the moving averages.
       epsilon: small float constant to avoid numerical instability.
     """
-
     def __init__(self, embedding_dim, num_embeddings, commitment_cost, decay,
                  epsilon=1e-5, **kwargs):
         self._embedding_dim = embedding_dim
@@ -138,8 +124,8 @@ class VectorQuantizerEMA(Layer):
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
-        # w is a matrix with an embedding in each column. When training, the
-        # embedding is assigned to be the average of all inputs assigned to that  embedding.
+        # w is a matrix with an embedding in each column. When training, the embedding
+        # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape,
                                   initializer=initializer, use_resource=True)
         self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_fts, self._num_embeddings],
@@ -152,20 +138,13 @@ class VectorQuantizerEMA(Layer):
         """forward pass computation
         Args:
           inputs: Tensor, final dimension must be equal to embedding_dim. All other
-            leading dimensions will be flattened and treated as a large batch.
+            leading dimensions will be kept as-is and treated as a large batch.
           training: boolean, whether this connection is to training data. When
             this is set to False, the internal moving average statistics will not be
             updated.
 
         Returns:
-          dict containing the following keys and values:
-            quantize: Tensor containing the quantized version of the input.
-            loss: Tensor containing the loss to optimize.
-            perplexity: Tensor containing the perplexity of the encodings.
-            encodings: Tensor containing the discrete encodings, ie which element
-              of the quantized space each input element was mapped to.
-            enc_idx: Tensor containing the discrete encoding indices, ie
-              which element of the quantized space each input element was mapped to.
+          quantized tensor which has the same shape as input tensor.
         """
         with tf.control_dependencies([inputs]):
             w = self._w.read_value()
@@ -192,20 +171,12 @@ class VectorQuantizerEMA(Layer):
                 update_w = self._w.assign(normalised_updated_ema_w)
                 with tf.control_dependencies([update_w]):
                     loss = self._commitment_cost * e_latent_loss
-
         else:
             loss = self._commitment_cost * e_latent_loss
 
         quantized = inputs + tf.stop_gradient(quantized - inputs)
         self.add_loss(loss)
         return quantized
-        # avg_probs = tf.reduce_mean(encodings, 0)
-        # perplexity = tf.exp(- tf.reduce_sum(avg_probs * tf.log(avg_probs + 1e-10)))
-        # return {'quantize': quantized,
-        #         'loss': loss,
-        #         'perplexity': perplexity,
-        #         'encodings': encodings,
-        #         'enc_idx': enc_idx, }
 
     @staticmethod
     def compute_output_shape(input_shape):
@@ -258,7 +229,7 @@ if __name__ == '__main__':
         .map(lambda x: tf.strings.to_number(tf.strings.split(x, ',')))
     num_vars = next(iter(train_ds)).shape[-1]
     train_xy = tf.stack([x for x in train_ds])
-    lb_id = 5
+    lb_id = 4
     train_x = tf.gather(train_xy, [i for i in range(num_vars) if i != lb_id], axis=1)
     train_y = train_xy[:, lb_id]
     train_x = tf.expand_dims(train_x, 1)  # for testing
@@ -267,4 +238,4 @@ if __name__ == '__main__':
     opt = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
-    model.fit(train_x, train_x, epochs=200, batch_size=batch, callbacks=callbacks)
+    model.fit(train_x, train_x, epochs=300, batch_size=batch, callbacks=callbacks)
