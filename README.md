@@ -1,5 +1,5 @@
-# Probabilistic graphical models Parameter typing using auto encoder  
-1. Train multiple independent auto-encoders with one neural network.
+# Probabilistic graphical model parameters tying using auto encoder 
+stage 1. Train multiple independent auto-encoders with one neural network.
 
 Author: Hao Xiong (haoxiong@outlook.com)
 
