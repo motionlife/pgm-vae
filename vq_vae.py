@@ -234,7 +234,7 @@ if __name__ == '__main__':
     batch_size = 1024
     D = 8
     K = 30
-    units = [12, 10]
+    dense_units = [12, 10]
     epochs = 100
     lr = 0.001
     beta = 0.2
@@ -249,7 +249,7 @@ if __name__ == '__main__':
     log_dir = os.path.join(os.path.join(os.curdir, 'logs'), time.strftime(f'{name}-%m-%d-%H-%M-%S'))
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
 
-    model = ParVAE(units=units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
+    model = ParVAE(units=dense_units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
     opt = tf.keras.optimizers.Adam(lr=lr)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     model.fit(train_ds, epochs=epochs, callbacks=callbacks)
