@@ -1,5 +1,5 @@
 # Probabilistic graphical model parameters tying using auto encoder 
-stage 1. Train multiple independent auto-encoders with one neural network.
+stage 1. Train multiple independent auto-encoders in one neural network.
 
 Author: Hao Xiong (haoxiong@outlook.com)
 
