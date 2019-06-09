@@ -27,4 +27,3 @@ def baseline():
         'bbc': {'vars': 1058, 'train': 1670, 'valid': 225, 'test': 330, 'ppl': 256.60},
         'ad': {'vars': 1556, 'train': 2461, 'valid': 327, 'test': 491, 'ppl': 6.01},
     }
-    pass
