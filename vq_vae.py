@@ -5,8 +5,8 @@
 """Customized tensorflow keras model with customized vector quantization layer"""
 
 import os
-import time
 import tensorflow as tf
+import numpy as np
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Layer, Dense
 from parallel_dense import ParallelDense
@@ -39,7 +39,7 @@ class VectorQuantizer(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
+        initializer = tf.keras.initializers.he_uniform()  # GlorotUniform()?
         self._w = self.add_weight(name='embeddings',
                                   shape=shape,
                                   initializer=initializer,
@@ -47,22 +47,25 @@ class VectorQuantizer(Layer):
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
-    def call(self, inputs):
+    def call(self, inputs, code_idx_only=False):
         """ Define the forward computation pass """
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, self._w)
                      + tf.reduce_sum(self._w ** 2, 1, keepdims=True))
-
         enc_idx = tf.argmin(distances, 2)
-        with tf.control_dependencies([enc_idx]):  # batch gather
-            quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
-        e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
-        q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
-        loss = q_latent_loss + self._commitment_cost * e_latent_loss
-        self.add_loss(loss)
+        if code_idx_only:
+            loss = 0.
+            output = enc_idx
+        else:
+            with tf.control_dependencies([enc_idx]):  # batch gather
+                quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
+            q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
+            loss = q_latent_loss + self._commitment_cost * e_latent_loss
+            output = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
 
-        quantized = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
-        return quantized
+        self.add_loss(loss)
+        return output
         # encodings = tf.one_hot(enc_idx, self._num_embeddings)
         # avg_probs = tf.reduce_mean(encodings, 0)
         # perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10))) # perplexity = exp(H(p))
@@ -76,10 +79,10 @@ class VectorQuantizer(Layer):
     def embeddings(self):
         return self._w
 
-    @staticmethod
-    def compute_output_shape(input_shape):
-        # return tf.TensorShape(input_shape)
-        return input_shape
+    # @staticmethod
+    # def compute_output_shape(input_shape):
+    #     # return tf.TensorShape(input_shape)
+    #     return input_shape
 
     # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
@@ -134,7 +137,7 @@ class VectorQuantizerEMA(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.he_uniform(seed=7)  # GlorotUniform(seed=7)?
+        initializer = tf.keras.initializers.he_uniform()  # GlorotUniform()?
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape,
@@ -145,7 +148,7 @@ class VectorQuantizerEMA(Layer):
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
 
-    def call(self, inputs, training=None):
+    def call(self, inputs, training=None, code_idx_only=False):
         """forward pass computation
         Args:
           inputs: Tensor, final dimension must be equal to embedding_dim. All other
@@ -153,49 +156,53 @@ class VectorQuantizerEMA(Layer):
           training: boolean, whether this connection is to training data. When
             this is set to False, the internal moving average statistics will not be
             updated.
+         code_idx_only: if only return encoding index
 
         Returns:
           quantized tensor which has the same shape as input tensor.
         """
         with tf.control_dependencies([inputs]):
             w = self._w.read_value()
-
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
-        encodings = tf.one_hot(enc_idx, self._num_embeddings)
-        quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
-        e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
-
-        if training:
-            updated_ema_cluster_size = moving_averages.assign_moving_average(
-                self._ema_cluster_size, tf.reduce_sum(encodings, 1), self._decay)
-            dw = tf.matmul(inputs, encodings, transpose_a=True)
-            updated_ema_w = moving_averages.assign_moving_average(self._ema_w, dw, self._decay)
-            n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
-            updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
-                    n + self._num_embeddings * self._epsilon) * n
-            normalised_updated_ema_w = (
-                    updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
-            with tf.control_dependencies([e_latent_loss]):
-                update_w = self._w.assign(normalised_updated_ema_w)
-                with tf.control_dependencies([update_w]):
-                    loss = self._commitment_cost * e_latent_loss
+        if code_idx_only:
+            loss = 0.
+            output = enc_idx
         else:
-            loss = self._commitment_cost * e_latent_loss
+            encodings = tf.one_hot(enc_idx, self._num_embeddings)
+            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
+            if training:
+                updated_ema_cluster_size = moving_averages.assign_moving_average(
+                    self._ema_cluster_size, tf.reduce_sum(encodings, 1), self._decay)
+                dw = tf.matmul(inputs, encodings, transpose_a=True)
+                updated_ema_w = moving_averages.assign_moving_average(self._ema_w, dw, self._decay)
+                n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
+                updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
+                        n + self._num_embeddings * self._epsilon) * n
+                normalised_updated_ema_w = (
+                        updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
+                with tf.control_dependencies([e_latent_loss]):
+                    update_w = self._w.assign(normalised_updated_ema_w)
+                    with tf.control_dependencies([update_w]):
+                        loss = self._commitment_cost * e_latent_loss
+            else:
+                loss = self._commitment_cost * e_latent_loss
 
-        quantized = inputs + tf.stop_gradient(quantized - inputs)
+            output = inputs + tf.stop_gradient(quantized - inputs)
+
         self.add_loss(loss)
-        return quantized
+        return output
 
     @property
     def embeddings(self):
         return self._w
 
-    @staticmethod
-    def compute_output_shape(input_shape):
-        return input_shape
+    # @staticmethod
+    # def compute_output_shape(input_shape):
+    #     return input_shape
 
     def get_config(self):
         base_config = super(VectorQuantizerEMA, self).get_config()
@@ -227,12 +234,14 @@ class ParVAE(Model):
         self.dense_5 = ParallelDense(units[0], activation='relu')
         self.dense_6 = ParallelDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
-    def call(self, inputs):
+    def call(self, inputs, code_idx_only=False):
         x = tf.transpose(inputs, [1, 0, 2])
         x = self.dense_1(x)
         x = self.dense_2(x)
         x = self.dense_3(x)
-        x = self.vq_layer(x)
+        x = self.vq_layer(x, code_idx_only=code_idx_only)
+        if code_idx_only:
+            return x
         x = self.dense_4(x)
         x = self.dense_5(x)
         x = self.dense_6(x)
@@ -244,30 +253,57 @@ class ParVAE(Model):
 
 
 if __name__ == '__main__':
+    # todo: arg parse parameters from command
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # training on cpu
     bl = baseline()
-    name = 'msnbc'  # get from arg parse
+    name = 'nltcs'
     num_vars = bl[name]['vars']
-    batch_size = 1024
+    batch_size = 64
     D = 8
     K = 50
     dense_units = [12, 10]
-    epochs = 200
-    learn_rate = 0.002
+    epochs = 100
+    learn_rate = 0.001
     beta = 0.25
     gamma = 0.99
+    seed = 7
+    tf.random.set_seed(seed)
+    log_dir = os.path.join(os.curdir, 'logs', f'{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}')
+    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
 
-    csv_path = f'trw/{name}.train.data'
     ds_size = bl[name]['train']
-    train_ds = tf.data.experimental.CsvDataset(csv_path, [0.] * num_vars).shuffle(ds_size).map(
-        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_vars - 1]), [num_vars, -1])).map(
-        lambda x: (x, x)).batch(batch_size).prefetch(500)
-
-    log_dir = os.path.join(os.curdir, 'logs', time.strftime(f'{name}-%m-%d-%H-%M-%S'))
-    callbacks = None  # [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
+    train_xy = tf.data.experimental.CsvDataset(f'trw/{name}.train.data', [0.] * num_vars).map(
+        lambda *x: tf.stack(x)).shuffle(ds_size)
+    train_xs = train_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))
+    train_xx = train_xs.map(lambda x: (x, x)).batch(batch_size).prefetch(100)
+    train_x = train_xs.batch(batch_size).prefetch(100)
+    train_y = train_xy.map(lambda x: tf.reverse(tf.cast(x, tf.int32), [0])).batch(batch_size).prefetch(100)
 
     model = ParVAE(units=dense_units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
     opt = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
-    model.fit(train_ds, epochs=epochs, callbacks=callbacks, shuffle=False)
-    model.save_weights(log_dir, save_format='tf')
+    model.fit(train_xx, epochs=epochs, callbacks=callbacks, shuffle=False)
+    model.save_weights(log_dir + '/model', save_format='tf')
+
+    # Calculate distribution from training data
+    counter = np.ones((num_vars, K, 2))  # Laplace smoothing with a = 1
+    all_enc = tf.zeros([])
+    for x_batch, y_batch in zip(train_x, train_y):
+        encoding_idx = model(x_batch, code_idx_only=True)  # shape=(num_vars, batch_size)
+        B, V = y_batch.shape
+        for v in range(V):
+            for b in range(B):
+                counter[v, encoding_idx[v, b], y_batch[b, v]] += 1
+    dist = counter / np.sum(counter, axis=-1, keepdims=True)
+
+    # Calculate Pseudo Log-Likelihood
+    pll = np.zeros(num_vars)
+    for x_batch, y_batch in zip(train_x, train_y):
+        encoding_idx = model(x_batch, code_idx_only=True)
+        B, V = y_batch.shape
+        for v in range(V):
+            for b in range(B):
+                pll[v] += dist[v, encoding_idx[v, b], y_batch[b, v]]
+    avg_pll = np.sum(pll / ds_size)
+
+    print(f'The total (variable) average PLL is: {avg_pll}')
