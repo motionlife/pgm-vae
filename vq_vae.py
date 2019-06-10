@@ -303,7 +303,7 @@ if __name__ == '__main__':
         B, V = y_batch.shape
         for v in range(V):
             for b in range(B):
-                pll[v] += dist[v, encoding_idx[v, b], y_batch[b, v]]
+                pll[v] += np.log(dist[v, encoding_idx[v, b], y_batch[b, v]])
     avg_pll = np.sum(pll / ds_size)
 
     print(f'The total (variable) average PLL is: {avg_pll}')
