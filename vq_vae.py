@@ -84,6 +84,10 @@ class VectorQuantizer(Layer):
     # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
         base_config = super(VectorQuantizer, self).get_config()
+        base_config.update({'_embedding_dim': self._embedding_dim,
+                            '_num_embeddings': self._num_embeddings,
+                            '_commitment_cost': self._commitment_cost
+                            })
         return base_config
 
     @classmethod
@@ -117,8 +121,8 @@ class VectorQuantizerEMA(Layer):
                  epsilon=1e-5, **kwargs):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
-        self._decay = decay
         self._commitment_cost = commitment_cost
+        self._decay = decay
         self._epsilon = epsilon
         super(VectorQuantizerEMA, self).__init__(**kwargs)
 
@@ -193,6 +197,20 @@ class VectorQuantizerEMA(Layer):
     def compute_output_shape(input_shape):
         return input_shape
 
+    def get_config(self):
+        base_config = super(VectorQuantizerEMA, self).get_config()
+        base_config.update({'_embedding_dim': self._embedding_dim,
+                            '_num_embeddings': self._num_embeddings,
+                            '_commitment_cost': self._commitment_cost,
+                            '_decay': self._decay,
+                            '_epsilon': self._epsilon
+                            })
+        return base_config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
 
 class ParVAE(Model):
     """A customized model derived from Keras model for batch features training"""
@@ -207,7 +225,7 @@ class ParVAE(Model):
         self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay)
         self.dense_4 = ParallelDense(units[1], activation='relu')
         self.dense_5 = ParallelDense(units[0], activation='relu')
-        self.dense_6 = ParallelDense(fts, activation='sigmoid')  # best fn that has a [0,1] output?
+        self.dense_6 = ParallelDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
     def call(self, inputs):
         x = tf.transpose(inputs, [1, 0, 2])
@@ -226,30 +244,30 @@ class ParVAE(Model):
 
 
 if __name__ == '__main__':
-    # import os
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # using cpu
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # training on cpu
     bl = baseline()
     name = 'msnbc'  # get from arg parse
     num_vars = bl[name]['vars']
     batch_size = 1024
     D = 8
-    K = 30
+    K = 50
     dense_units = [12, 10]
-    epochs = 100
-    lr = 0.001
-    beta = 0.2
+    epochs = 200
+    learn_rate = 0.002
+    beta = 0.25
     gamma = 0.99
 
     csv_path = f'trw/{name}.train.data'
     ds_size = bl[name]['train']
     train_ds = tf.data.experimental.CsvDataset(csv_path, [0.] * num_vars).shuffle(ds_size).map(
-        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_vars - 1]), [num_vars, -1])).batch(batch_size).map(
-        lambda x: (x, x)).prefetch(5)
+        lambda *x: tf.reshape(tf.tile(tf.stack(x), [num_vars - 1]), [num_vars, -1])).map(
+        lambda x: (x, x)).batch(batch_size).prefetch(500)
 
-    log_dir = os.path.join(os.path.join(os.curdir, 'logs'), time.strftime(f'{name}-%m-%d-%H-%M-%S'))
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
+    log_dir = os.path.join(os.curdir, 'logs', time.strftime(f'{name}-%m-%d-%H-%M-%S'))
+    callbacks = None  # [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
 
     model = ParVAE(units=dense_units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
-    opt = tf.keras.optimizers.Adam(lr=lr)
+    opt = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
-    model.fit(train_ds, epochs=epochs, callbacks=callbacks)
+    model.fit(train_ds, epochs=epochs, callbacks=callbacks, shuffle=False)
+    model.save_weights(log_dir, save_format='tf')
