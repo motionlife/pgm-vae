@@ -266,14 +266,15 @@ if __name__ == '__main__':
     learn_rate = 0.001
     beta = 0.25
     gamma = 0.99
-    seed = 7
+    seed = 1
     tf.random.set_seed(seed)
-    log_dir = os.path.join(os.curdir, 'logs', f'{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}')
+    log_dir = os.path.join(os.curdir, '../../DATA_DRIVE/logs',
+                           f'{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}')
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
 
     ds_size = bl[name]['train']
     train_xy = tf.data.experimental.CsvDataset(f'trw/{name}.train.data', [0.] * num_vars).map(
-        lambda *x: tf.stack(x)).shuffle(ds_size)
+        lambda *x: tf.stack(x)).shuffle(ds_size // 4)
     train_xs = train_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))
     train_xx = train_xs.map(lambda x: (x, x)).batch(batch_size).prefetch(100)
     train_x = train_xs.batch(batch_size).prefetch(100)
