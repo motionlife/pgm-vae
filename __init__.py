@@ -1,1 +1,2 @@
-from vq_vae import *
+from model import *
+from baseline import baseline

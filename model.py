@@ -4,14 +4,127 @@
 # ============================================================================
 """Customized tensorflow keras model with customized vector quantization layer"""
 
-import os
-import tensorflow as tf
-import numpy as np
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Layer, Dense
-from parallel_dense import ParallelDense
-from tensorflow.python.training import moving_averages
-from baseline import baseline
+from tensorflow.keras.layers import Layer
+import tensorflow.keras.activations as acts
+import tensorflow.keras.constraints as ctr
+import tensorflow.keras.initializers as init
+import tensorflow.keras.regularizers as reg
+from tensorflow.python.training import moving_averages as ma
+import tensorflow as tf
+
+
+class FatDense(Layer):
+    """ A 2D layer whose columns are identical keras Dense layers
+
+    Arguments:
+      units: Positive integer, dimensionality of the output space.
+      activation: Activation function to use.
+        If you don't specify anything, no activation is applied
+        (ie. "linear" activation: `a(x) = x`).
+      use_bias: Boolean, whether the layer uses a bias vector.
+      kernel_initializer: Initializer for the `kernel` weights matrix.
+      bias_initializer: Initializer for the bias vector.
+      kernel_regularizer: Regularizer function applied to
+        the `kernel` weights matrix.
+      bias_regularizer: Regularizer function applied to the bias vector.
+      activity_regularizer: Regularizer function applied to
+        the output of the layer (its "activation")..
+      kernel_constraint: Constraint function applied to
+        the `kernel` weights matrix.
+      bias_constraint: Constraint function applied to the bias vector.
+
+    Input shape:
+      N-D tensor with shape: `(batch_size, ..., input_dim)`.
+      The most common situation would be
+      a 2D input with shape `(batch_size, input_dim)`.
+
+    Output shape:
+      N-D tensor with shape: `(batch_size, ..., units)`.
+      For instance, for a 2D input with shape `(batch_size, input_dim)`,
+      the output would have shape `(batch_size, units)`.
+    """
+
+    def __init__(self,
+                 units,
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer='glorot_uniform',
+                 bias_initializer='zeros',
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 kernel_constraint=None,
+                 bias_constraint=None,
+                 **kwargs):
+        if 'input_shape' not in kwargs and 'input_dim' in kwargs:
+            kwargs['input_shape'] = (kwargs.pop('input_dim'),)
+
+        super(FatDense, self).__init__(
+            activity_regularizer=reg.get(activity_regularizer), **kwargs)
+        self.units = int(units)
+        self.activation = acts.get(activation)
+        self.use_bias = use_bias
+        self.kernel_initializer = init.get(kernel_initializer)
+        self.bias_initializer = init.get(bias_initializer)
+        self.kernel_regularizer = reg.get(kernel_regularizer)
+        self.bias_regularizer = reg.get(bias_regularizer)
+        self.kernel_constraint = ctr.get(kernel_constraint)
+        self.bias_constraint = ctr.get(bias_constraint)
+
+    def build(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
+        if input_shape.rank != 3:
+            raise ValueError("The input tensor must be rank of 3")
+        last_dim = input_shape[-1]
+        num_fts = input_shape[0]
+        self.kernel = self.add_weight(
+            name='kernel',
+            shape=[num_fts, last_dim, self.units],
+            initializer=self.kernel_initializer,
+            regularizer=self.kernel_regularizer,
+            constraint=self.kernel_constraint,
+            dtype=self.dtype,
+            trainable=True)
+        if self.use_bias:
+            self.bias = self.add_weight(
+                name='bias',
+                shape=[num_fts, 1, self.units],
+                initializer=self.bias_initializer,
+                regularizer=self.bias_regularizer,
+                constraint=self.bias_constraint,
+                dtype=self.dtype,
+                trainable=True)
+        else:
+            self.bias = None
+        self.built = True
+
+    def call(self, inputs):
+        outputs = tf.matmul(inputs, self.kernel)
+        if self.use_bias:
+            outputs = outputs + self.bias
+        if self.activation is not None:
+            return self.activation(outputs)
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[:-1].concatenate(self.units)
+
+    def get_config(self):
+        config = {
+            'units': self.units,
+            'activation': acts.serialize(self.activation),
+            'use_bias': self.use_bias,
+            'kernel_initializer': init.serialize(self.kernel_initializer),
+            'bias_initializer': init.serialize(self.bias_initializer),
+            'kernel_regularizer': reg.serialize(self.kernel_regularizer),
+            'bias_regularizer': reg.serialize(self.bias_regularizer),
+            'activity_regularizer': reg.serialize(self.activity_regularizer),
+            'kernel_constraint': ctr.serialize(self.kernel_constraint),
+            'bias_constraint': ctr.serialize(self.bias_constraint)
+        }
+        base_config = super(FatDense, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 class VectorQuantizer(Layer):
@@ -39,7 +152,7 @@ class VectorQuantizer(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.lecun_uniform()  # GlorotUniform()?
+        initializer = init.lecun_uniform()  # GlorotUniform()?
         self._w = self.add_weight(name='embeddings',
                                   shape=shape,
                                   initializer=initializer,
@@ -137,7 +250,7 @@ class VectorQuantizerEMA(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = tf.keras.initializers.lecun_uniform()  # GlorotUniform()?
+        initializer = init.lecun_uniform()  # GlorotUniform()?
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape,
@@ -175,10 +288,10 @@ class VectorQuantizerEMA(Layer):
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
-                updated_ema_cluster_size = moving_averages.assign_moving_average(
+                updated_ema_cluster_size = ma.assign_moving_average(
                     self._ema_cluster_size, tf.reduce_sum(encodings, 1), self._decay)
                 dw = tf.matmul(inputs, encodings, transpose_a=True)
-                updated_ema_w = moving_averages.assign_moving_average(self._ema_w, dw, self._decay)
+                updated_ema_w = ma.assign_moving_average(self._ema_w, dw, self._decay)
                 n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
                 updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
                         n + self._num_embeddings * self._epsilon) * n
@@ -219,94 +332,36 @@ class VectorQuantizerEMA(Layer):
         return cls(**config)
 
 
-class ParVAE(Model):
+class VqVAE(Model):
     """A customized model derived from Keras model for batch features training"""
 
-    def __init__(self, units, fts, dim, emb, cost=0.25, decay=0.99):
-        super(ParVAE, self).__init__(name='parallel_vae')
+    def __init__(self, units, fts, dim, emb, cost=0.25, decay=0.99, ema=True):
+        super(VqVAE, self).__init__(name='vq_vae')
         # regularization: dropout layer or L2 regularizer
-        self.dense_1 = ParallelDense(units[0], activation='relu')
-        self.dense_2 = ParallelDense(units[1], activation='relu')
-        self.dense_3 = ParallelDense(dim, activation='relu')
-        self.vq_layer = VectorQuantizer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
-        # self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay)
-        self.dense_4 = ParallelDense(units[1], activation='relu')
-        self.dense_5 = ParallelDense(units[0], activation='relu')
-        self.dense_6 = ParallelDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
+        self.fd1 = FatDense(units[0], activation='relu')
+        self.fd2 = FatDense(units[1], activation='relu')
+        self.fd3 = FatDense(dim, activation='relu')
+        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost,
+                                           decay=decay) if ema else VectorQuantizer(embedding_dim=dim,
+                                                                                    num_embeddings=emb,
+                                                                                    commitment_cost=cost)
+        self.fd4 = FatDense(units[1], activation='relu')
+        self.fd5 = FatDense(units[0], activation='relu')
+        self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
     def call(self, inputs, code_idx_only=False):
         x = tf.transpose(inputs, [1, 0, 2])
-        x = self.dense_1(x)
-        x = self.dense_2(x)
-        x = self.dense_3(x)
+        x = self.fd1(x)
+        x = self.fd2(x)
+        x = self.fd3(x)
         x = self.vq_layer(x, code_idx_only=code_idx_only)
         if code_idx_only:
             return x
-        x = self.dense_4(x)
-        x = self.dense_5(x)
-        x = self.dense_6(x)
+        x = self.fd4(x)
+        x = self.fd5(x)
+        x = self.fd6(x)
         return tf.transpose(x, [1, 0, 2])
 
     @staticmethod
     def compute_output_shape(input_shape):
         return input_shape
-
-
-if __name__ == '__main__':
-    # todo: arg parse parameters from command
-    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # training on cpu
-    bl = baseline()
-    name = 'nltcs'
-    K = 50
-    D = 10
-    dense_units = [14, 12]
-    batch_size = 64
-    epochs = 150
-    learn_rate = 0.01
-    beta = 0.25
-    gamma = 0.99
-    seed = 3
-    tf.random.set_seed(seed)
-    log_dir = os.path.join(os.curdir, "logs", f"{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}")
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
-    num_vars = bl[name]['vars']
-
-    def get_data(ds_type):
-        ds_xy = tf.data.experimental.CsvDataset(f'trw/{name}.{ds_type}.data', [0.] * num_vars).map(
-            lambda *x: tf.stack(x))
-        ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
-        ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(tf.cast(x, tf.int32), [0]))])
-        return ds_x, ds_y, bl[name][ds_type]
-
-    train_x, train_y, train_size = get_data('train')
-    model = ParVAE(units=dense_units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
-    opt = tf.keras.optimizers.Adam(lr=learn_rate)
-    model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
-    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks)
-    model.save_weights(log_dir + '/model', save_format='tf')
-
-    # Calculate distribution from training data
-    counter = np.ones((num_vars, K, 2), np.int32)  # Laplace smoothing with a = 1
-    encoding_idx = model(train_x, code_idx_only=True)  # shape=(num_vars, batch_size)
-    for v in range(num_vars):
-        for i in range(train_size):
-            counter[v, encoding_idx[v, i], train_y[i, v]] += 1
-    dist = counter / np.sum(counter, axis=-1, keepdims=True)
-
-    # Calculate Pseudo Log-Likelihood
-    def get_pll(ds_x, ds_y, ds_size):
-        pll = np.zeros(num_vars)
-        indices = model(ds_x, code_idx_only=True)
-        for n in range(num_vars):
-            for j in range(ds_size):
-                pll[n] += np.log(dist[n, indices[n, j], ds_y[j, n]])
-        return pll
-
-    valid_x, valid_y, valid_size = get_data('valid')
-    test_x, test_y, test_size = get_data('test')
-    pll_train = get_pll(train_x, train_y, train_size)  # np.sum(pll / train_size)
-    pll_valid = get_pll(valid_x, valid_y, valid_size)
-    pll_test = get_pll(test_x, test_y, test_size)
-    print(f'The total (train) average PLL is: {np.sum(pll_train / train_size)}')
-    print(f'The total (valid) average PLL is: {np.sum(pll_valid / valid_size)}')
-    print(f'The total (test) average PLL is: {np.sum(pll_test / test_size)}')
