@@ -228,8 +228,8 @@ class ParVAE(Model):
         self.dense_1 = ParallelDense(units[0], activation='relu')
         self.dense_2 = ParallelDense(units[1], activation='relu')
         self.dense_3 = ParallelDense(dim, activation='relu')
-        # self.vq_layer = VectorQuantizer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
-        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay)
+        self.vq_layer = VectorQuantizer(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost)
+        # self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay)
         self.dense_4 = ParallelDense(units[1], activation='relu')
         self.dense_5 = ParallelDense(units[0], activation='relu')
         self.dense_6 = ParallelDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
@@ -256,26 +256,29 @@ if __name__ == '__main__':
     # todo: arg parse parameters from command
     os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # training on cpu
     bl = baseline()
-    name = 'ad'
-    K = 20
-    D = 30
-    dense_units = [200, 100]
+    name = 'nltcs'
+    K = 50
+    D = 10
+    dense_units = [14, 12]
     batch_size = 64
-    epochs = 100
-    learn_rate = 0.001
+    epochs = 150
+    learn_rate = 0.01
     beta = 0.25
     gamma = 0.99
     seed = 3
     tf.random.set_seed(seed)
-    log_dir = os.path.join(os.curdir, '../../DATA_DRIVE/logs',
-                           f'{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}')
+    log_dir = os.path.join(os.curdir, "logs", f"{name}_D-{D}_K-{K}_bs-{batch_size}_lr-{learn_rate}_sd-{seed}")
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
     num_vars = bl[name]['vars']
-    ds_size = bl[name]['train']
-    train_xy = tf.data.experimental.CsvDataset(f'trw/{name}.train.data', [0.] * num_vars).map(lambda *x: tf.stack(x))
-    train_x = tf.stack([x for x in train_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
-    train_y = tf.stack([y for y in train_xy.map(lambda x: tf.reverse(tf.cast(x, tf.int32), [0]))])
 
+    def get_data(ds_type):
+        ds_xy = tf.data.experimental.CsvDataset(f'trw/{name}.{ds_type}.data', [0.] * num_vars).map(
+            lambda *x: tf.stack(x))
+        ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
+        ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(tf.cast(x, tf.int32), [0]))])
+        return ds_x, ds_y, bl[name][ds_type]
+
+    train_x, train_y, train_size = get_data('train')
     model = ParVAE(units=dense_units, fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma)
     opt = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
@@ -286,15 +289,24 @@ if __name__ == '__main__':
     counter = np.ones((num_vars, K, 2), np.int32)  # Laplace smoothing with a = 1
     encoding_idx = model(train_x, code_idx_only=True)  # shape=(num_vars, batch_size)
     for v in range(num_vars):
-        for i in range(ds_size):
+        for i in range(train_size):
             counter[v, encoding_idx[v, i], train_y[i, v]] += 1
     dist = counter / np.sum(counter, axis=-1, keepdims=True)
 
     # Calculate Pseudo Log-Likelihood
-    pll = np.zeros(num_vars)
-    for v in range(num_vars):
-        for i in range(ds_size):
-            pll[v] += np.log(dist[v, encoding_idx[v, i], train_y[i, v]])
-    avg_pll = np.sum(pll / ds_size)
+    def get_pll(ds_x, ds_y, ds_size):
+        pll = np.zeros(num_vars)
+        indices = model(ds_x, code_idx_only=True)
+        for n in range(num_vars):
+            for j in range(ds_size):
+                pll[n] += np.log(dist[n, indices[n, j], ds_y[j, n]])
+        return pll
 
-    print(f'The total (variable) average PLL is: {avg_pll}')
+    valid_x, valid_y, valid_size = get_data('valid')
+    test_x, test_y, test_size = get_data('test')
+    pll_train = get_pll(train_x, train_y, train_size)  # np.sum(pll / train_size)
+    pll_valid = get_pll(valid_x, valid_y, valid_size)
+    pll_test = get_pll(test_x, test_y, test_size)
+    print(f'The total (train) average PLL is: {np.sum(pll_train / train_size)}')
+    print(f'The total (valid) average PLL is: {np.sum(pll_valid / valid_size)}')
+    print(f'The total (test) average PLL is: {np.sum(pll_test / test_size)}')
