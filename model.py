@@ -152,7 +152,7 @@ class VectorQuantizer(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = init.lecun_uniform()  # GlorotUniform()?
+        initializer = init.GlorotUniform()
         self._w = self.add_weight(name='embeddings',
                                   shape=shape,
                                   initializer=initializer,
@@ -160,15 +160,15 @@ class VectorQuantizer(Layer):
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
-    def call(self, inputs, code_idx_only=False):
+    def call(self, inputs, code_only=False):
         """ Define the forward computation pass """
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, self._w)
                      + tf.reduce_sum(self._w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
-        if code_idx_only:
+        if code_only:
             loss = 0.
-            output = enc_idx
+            output = tf.one_hot(enc_idx, self._num_embeddings)
         else:
             with tf.control_dependencies([enc_idx]):  # batch gather
                 quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
@@ -250,7 +250,7 @@ class VectorQuantizerEMA(Layer):
         num_fts = input_shape[0]
         with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
             shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
-        initializer = init.lecun_uniform()  # GlorotUniform()?
+        initializer = init.GlorotUniform()
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape,
@@ -261,7 +261,7 @@ class VectorQuantizerEMA(Layer):
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
 
-    def call(self, inputs, training=None, code_idx_only=False):
+    def call(self, inputs, training=None, code_only=False):
         """forward pass computation
         Args:
           inputs: Tensor, final dimension must be equal to embedding_dim. All other
@@ -269,7 +269,7 @@ class VectorQuantizerEMA(Layer):
           training: boolean, whether this connection is to training data. When
             this is set to False, the internal moving average statistics will not be
             updated.
-         code_idx_only: if only return encoding index
+         code_only: if only return encoding index
 
         Returns:
           quantized tensor which has the same shape as input tensor.
@@ -280,11 +280,11 @@ class VectorQuantizerEMA(Layer):
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
-        if code_idx_only:
+        encodings = tf.one_hot(enc_idx, self._num_embeddings)
+        if code_only:
             loss = 0.
-            output = enc_idx
+            output = encodings
         else:
-            encodings = tf.one_hot(enc_idx, self._num_embeddings)
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
@@ -349,17 +349,16 @@ class VqVAE(Model):
         self.fd5 = FatDense(units[0], activation='relu')
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
-    def call(self, inputs, code_idx_only=False):
+    def call(self, inputs, code_only=False):
         x = tf.transpose(inputs, [1, 0, 2])
         x = self.fd1(x)
         x = self.fd2(x)
         x = self.fd3(x)
-        x = self.vq_layer(x, code_idx_only=code_idx_only)
-        if code_idx_only:
-            return x
-        x = self.fd4(x)
-        x = self.fd5(x)
-        x = self.fd6(x)
+        x = self.vq_layer(x, code_only=code_only)
+        if not code_only:
+            x = self.fd4(x)
+            x = self.fd5(x)
+            x = self.fd6(x)
         return tf.transpose(x, [1, 0, 2])
 
     @staticmethod
