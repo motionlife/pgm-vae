@@ -55,6 +55,6 @@ if __name__ == '__main__':
     pll_train = get_pll(train_x, train_y, train_size)
     pll_valid = get_pll(*get_data('valid'))
     pll_test = get_pll(*get_data('test'))
-    print(f'The total (train) average PLL is: {tf.reduce_sum(pll_train)}')
-    print(f'The total (valid) average PLL is: {tf.reduce_sum(pll_valid)}')
-    print(f'The total (test) average PLL is: {tf.reduce_sum(pll_test)}')
+    print(f'PLL(train) = {tf.reduce_sum(pll_train)}\n'
+          f'PLL(valid) = {tf.reduce_sum(pll_valid)}\n'
+          f'PLL(test) = {tf.reduce_sum(pll_test)}')
