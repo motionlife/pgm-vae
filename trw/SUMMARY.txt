@@ -19,26 +19,26 @@ K:  10 50
 Z:  10 30
 
 ++++++++++++best_so_far+++++++++++++
--38.94961   accidents K=15 Z=30 Epoch=200 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1       (-12.69)    <excluded>
--49.37602   ad K=20 Z=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4             (-6.01)     ----!----
--39.67651   audio K=50 Z=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4          (-37.03)    ----C----
--255.84138  bbc K=20 Z=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (better)    *
--57.22821   netflix K=50 Z=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1         (-52.67)    ----C----
--35.14288   book K=50 Z=30 Epoch=150 Batch=100 Lrate=0.01 Ccost=0.25 Rseed=4            (better)    *
--154.12444  20ng K=20 Z=15 Epoch=150 Batch=200 Lrate=0.007 Ccost=0.1 Rseed=1            (better)    *
--86.59784   reuters K=20 Z=15 Epoch=150 Batch=200 Lrate=0.007 Ccost=0.1 Rseed=1         (better)    *
--158.4658   webkb K=20 Z=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4          (-155.51)   ----C----
--99.12013   dna K=50 Z=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-58.46)    ----!----
--52.332     jester K=50 Z=30 Epoch=150 Batch=100 Lrate=0.01 Ccost=0.25 Rseed=4          (-49.75)    ----C----
--2.14639    kdd K=50 Z=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-2.07)     ----C----
--11.24634   kosarek K=50 Z=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1         (-10.17)    ----C----
--5.63155    msnbc K=50 Z=10 Epoch=128 Batch=100 Lrate=0.01 Ccost=0.1 Rseed=1            (better)    *
--10.18245   msweb K=50 Z=20 Epoch=100 Batch=256 Lrate=0.01 Ccost=0.25 Rseed=1           (better)    *<excluded>
--5.24586    nltcs K=50 Z=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1           (-4.98)     ----C----
--12.92678   plants K=50 Z=30 Epoch=100 Batch=256 Lrate=0.01 Ccost=0.25 Rseed=1          (-10.21)    <excluded>
--34.34381   pumsb_star K=50 Z=30 Epoch=100 Batch=64 Lrate=0.01 Ccost=0.25 Rseed=1       (-9.79)     ----!----
--54.0099    tmovie K=30 Z=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1          (better)    *<excluded>
--10.99435   retail K=50 Z=10 Epoch=128 Batch=50 Lrate=0.001 Ccost=0.5 Rseed=1           (-10.39)    ----C----
+-38.94961   accidents K=15 D=30 Epoch=200 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1       (-12.69)    <excluded>
+-49.37602   ad K=20 D=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4             (-6.01)     ----!----
+-39.67651   audio K=50 D=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4          (-37.03)    ----C----
+-255.84138  bbc K=20 D=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (better)    *
+-57.22821   netflix K=50 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1         (-52.67)    ----C----
+-35.14288   book K=50 D=30 Epoch=150 Batch=100 Lrate=0.01 Ccost=0.25 Rseed=4            (better)    *
+-154.12444  20ng K=20 D=15 Epoch=150 Batch=200 Lrate=0.007 Ccost=0.1 Rseed=1            (better)    *
+-86.59784   reuters K=20 D=15 Epoch=150 Batch=200 Lrate=0.007 Ccost=0.1 Rseed=1         (better)    *
+-158.4658   webkb K=20 D=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4          (-155.51)   ----C----
+-99.12013   dna K=50 D=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-58.46)    ----!----
+-52.332     jester K=50 D=30 Epoch=150 Batch=100 Lrate=0.01 Ccost=0.25 Rseed=4          (-49.75)    ----C----
+-2.14639    kdd K=50 D=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-2.07)     ----C----
+-11.24634   kosarek K=50 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1         (-10.17)    ----C----
+-5.63155    msnbc K=50 D=10 Epoch=128 Batch=100 Lrate=0.01 Ccost=0.1 Rseed=1            (better)    *
+-10.18245   msweb K=50 D=20 Epoch=100 Batch=256 Lrate=0.01 Ccost=0.25 Rseed=1           (better)    *<excluded>
+-5.24586    nltcs K=50 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1           (-4.98)     ----C----
+-12.92678   plants K=50 D=30 Epoch=100 Batch=256 Lrate=0.01 Ccost=0.25 Rseed=1          (-10.21)    <excluded>
+-34.34381   pumsb_star K=50 D=30 Epoch=100 Batch=64 Lrate=0.01 Ccost=0.25 Rseed=1       (-9.79)     ----!----
+-54.0099    tmovie K=30 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1          (better)    *<excluded>
+-10.99435   retail K=50 D=10 Epoch=128 Batch=50 Lrate=0.001 Ccost=0.5 Rseed=1           (-10.39)    ----C----
 
 
 {'nltcs': 0.01553376, 'msnbc': 0.316962688,
