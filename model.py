@@ -285,7 +285,8 @@ class VectorQuantizerEMA(Layer):
             loss = 0.
             output = encodings
         else:
-            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            with tf.control_dependencies([enc_idx]):
+                quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
                 updated_ema_cluster_size = ma.assign_moving_average(
