@@ -15,7 +15,7 @@ import tensorflow as tf
 
 
 class FatDense(Layer):
-    """ A 2D layer whose columns are identical keras Dense layers
+    """ A N-D layer consist of many independent keras Dense layers
 
     Arguments:
       units: Positive integer, dimensionality of the output space.
@@ -35,14 +35,14 @@ class FatDense(Layer):
       bias_constraint: Constraint function applied to the bias vector.
 
     Input shape:
-      N-D tensor with shape: `(batch_size, ..., input_dim)`.
+      N-D tensor with shape: `(..., batch_size, input_dim)`.
       The most common situation would be
-      a 2D input with shape `(batch_size, input_dim)`.
+      a 3D input with shape `(net_num, batch_size, input_dim)`.
 
     Output shape:
-      N-D tensor with shape: `(batch_size, ..., units)`.
-      For instance, for a 2D input with shape `(batch_size, input_dim)`,
-      the output would have shape `(batch_size, units)`.
+      N-D tensor with shape: `(..., batch_size, units)`.
+      For instance, for a 3D input with shape `(net_num, batch_size, input_dim)`,
+      the output would have shape `(net_num, batch_size, units)`.
     """
 
     def __init__(self,
