@@ -30,8 +30,8 @@ Z:  10 30
 -158.4658   webkb K=20 D=30 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4          (-155.51)   ----C----
 -99.12013   dna K=50 D=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-58.46)    ----!----
 -52.332     jester K=50 D=30 Epoch=150 Batch=100 Lrate=0.01 Ccost=0.25 Rseed=4          (-49.75)    ----C----
--2.14639    kdd K=50 D=10 Epoch=150 Batch=100 Lrate=0.001 Ccost=0.25 Rseed=4            (-2.07)     ----C----
--11.24634   kosarek K=50 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1         (-10.17)    ----C----
+-2.110158   kdd K=70 D=10 Epoch=200 Batch=128 Lrate=0.005 Ccost=0.25 Rseed=23           (-2.07)     ----C----
+-11.01595   kosarek K=50 D=30 Epoch=200 Batch=64 Lrate=0.001 Ccost=0.5 Rseed=7          (-10.17)    ----C----
 -5.63155    msnbc K=50 D=10 Epoch=128 Batch=100 Lrate=0.01 Ccost=0.1 Rseed=1            (better)    *
 -10.18245   msweb K=50 D=20 Epoch=100 Batch=256 Lrate=0.01 Ccost=0.25 Rseed=1           (better)    *<excluded>
 -5.24586    nltcs K=50 D=10 Epoch=100 Batch=128 Lrate=0.01 Ccost=0.25 Rseed=1           (-4.98)     ----C----
