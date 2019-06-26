@@ -26,4 +26,9 @@ def baseline():
         '20ng': {'vars': 910, 'train': 11293, 'valid': 3764, 'test': 3764, 'pll': 160.82},
         'bbc': {'vars': 1058, 'train': 1670, 'valid': 225, 'test': 330, 'pll': 256.60},
         'ad': {'vars': 1556, 'train': 2461, 'valid': 327, 'test': 491, 'pll': 6.01},
+        '50-17-8': {'vars': 289, 'train': 5000, 'valid': 2000, 'test': 2000, 'pll': 6.01},
+        'bn2o-30-20-200-2a': {'vars': 50, 'train': 5000, 'valid': 2000, 'test': 2000, 'pll': 6.01},
+        'fs-07': {'vars': 1225, 'train': 5000, 'valid': 2000, 'test': 2000, 'pll': 6.01},
+        'students_03_02-0000': {'vars': 376, 'train': 5000, 'valid': 2000, 'test': 2000, 'pll': 6.01},
+
     }
