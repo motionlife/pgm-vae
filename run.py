@@ -2,7 +2,7 @@ import os
 import argparse
 import tensorflow as tf
 from model import VqVAE
-from baseline import baseline
+from baseline import baseline as bl
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -28,7 +28,6 @@ if __name__ == '__main__':
         gpus = tf.config.experimental.list_physical_devices('GPU')
         tf.config.experimental.set_visible_devices(gpus[device], 'GPU')
         # tf.config.experimental.set_memory_growth(gpus[device], True)  # only grow the memory usage as is needed
-    bl = baseline()
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier))]
