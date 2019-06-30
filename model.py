@@ -4,14 +4,14 @@
 # ============================================================================
 """Customized tensorflow keras model with customized vector quantization layer"""
 
-from tensorflow.keras import Model
-from tensorflow.keras.layers import Layer
-import tensorflow.keras.activations as acts
-import tensorflow.keras.constraints as ctr
-import tensorflow.keras.initializers as init
-import tensorflow.keras.regularizers as reg
-from tensorflow.python.training import moving_averages as ma
 import tensorflow as tf
+from tensorflow.python.keras import Model
+from tensorflow.python.keras.layers import Layer
+from tensorflow.python.keras import activations as acts
+from tensorflow.python.keras import constraints as ctr
+from tensorflow.python.keras import initializers as init
+from tensorflow.python.keras import regularizers as reg
+from tensorflow.python.training import moving_averages as ma
 
 
 class FatDense(Layer):
