@@ -27,7 +27,7 @@ if __name__ == '__main__':
     else:
         gpus = tf.config.experimental.list_physical_devices('GPU')
         tf.config.experimental.set_visible_devices(gpus[device], 'GPU')
-        tf.config.experimental.set_memory_growth(gpus[device], True)  # only grow the memory usage as is needed
+        # tf.config.experimental.set_memory_growth(gpus[device], True)  # only grow the memory usage as is needed
     bl = baseline()
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
