@@ -40,12 +40,13 @@ if __name__ == '__main__':
             lambda *x: tf.stack(x))
         ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
         ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(x, [0]))])
-        return ds_x, ds_y, bl[name][ds_type]
+        return ds_x, ds_y
 
-    train_x, train_y, train_size = get_data('train')
+    train_x, train_y = get_data('train')
     model = VqVAE(units=[lyr0, lyr1], fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     opt = tf.keras.optimizers.Adam(lr=learn_rate)
-    model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # mse, categorical_crossentropy, binary_crossentropy
+    # mse, categorical_crossentropy, binary_crossentropy
+    model.compile(optimizer=opt, loss='mse', metrics=['mae'])
     model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
@@ -58,13 +59,13 @@ if __name__ == '__main__':
     logP0 = tf.math.log(1 - dist)
 
     # Calculate Pseudo Log-Likelihood
-    def get_pll(ds_x, ds_y, ds_size):
+    def get_pll(ds_x, ds_y):
         enc = model(ds_x, code_only=True)
         n1 = tf.stack([tf.reduce_sum(tf.boolean_mask(enc[:, i, :], ds_y[:, i]), 0) for i in range(num_vars)])
         n0 = tf.stack([tf.reduce_sum(tf.boolean_mask(enc[:, i, :], 1 - ds_y[:, i]), 0) for i in range(num_vars)])
-        return (tf.cast(n1, tf.float64) * logP1 + tf.cast(n0, tf.float64) * logP0) / ds_size
+        return (tf.cast(n1, tf.float64) * logP1 + tf.cast(n0, tf.float64) * logP0) / ds_y.shape[0]
 
-    pll_train = get_pll(train_x, train_y, train_size)
+    pll_train = get_pll(train_x, train_y)
     pll_valid = get_pll(*get_data('valid'))
     pll_test = get_pll(*get_data('test'))
     out = f'-train:{tf.reduce_sum(pll_train)} valid:{tf.reduce_sum(pll_valid)} test:{tf.reduce_sum(pll_test)}'
