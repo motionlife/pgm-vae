@@ -51,7 +51,7 @@ class FatDense(Layer):
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
                  bias_initializer='zeros',
-                 kernel_regularizer=reg.l2(0.001),
+                 kernel_regularizer=None,
                  bias_regularizer=None,
                  activity_regularizer=None,
                  kernel_constraint=None,
@@ -60,8 +60,7 @@ class FatDense(Layer):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
             kwargs['input_shape'] = (kwargs.pop('input_dim'),)
 
-        super(FatDense, self).__init__(
-            activity_regularizer=reg.get(activity_regularizer), **kwargs)
+        super(FatDense, self).__init__(activity_regularizer=reg.get(activity_regularizer), **kwargs)
         self.units = int(units)
         self.activation = acts.get(activation)
         self.use_bias = use_bias
@@ -151,10 +150,7 @@ class VectorQuantizer(Layer):
         num_fts = input_shape[0]
         shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = init.GlorotUniform()
-        self._w = self.add_weight(name='embeddings',
-                                  shape=shape,
-                                  initializer=initializer,
-                                  trainable=True)
+        self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, trainable=True)
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
@@ -249,8 +245,7 @@ class VectorQuantizerEMA(Layer):
         initializer = init.GlorotUniform()
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
-        self._w = self.add_weight(name='embeddings', shape=shape,
-                                  initializer=initializer, use_resource=True)
+        self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, use_resource=True)
         self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_fts, self._num_embeddings],
                                                  initializer=tf.constant_initializer(0), use_resource=True)
         self._ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
@@ -290,8 +285,7 @@ class VectorQuantizerEMA(Layer):
                 n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
                 updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
                         n + self._num_embeddings * self._epsilon) * n
-                normalised_updated_ema_w = (
-                        updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
+                normalised_updated_ema_w = (updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
                 self._w.assign(normalised_updated_ema_w)
                 loss = self._commitment_cost * e_latent_loss
             else:
