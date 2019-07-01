@@ -51,7 +51,7 @@ class FatDense(Layer):
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
                  bias_initializer='zeros',
-                 kernel_regularizer=None,
+                 kernel_regularizer=reg.l2(0.001),
                  bias_regularizer=None,
                  activity_regularizer=None,
                  kernel_constraint=None,
@@ -148,10 +148,8 @@ class VectorQuantizer(Layer):
         input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
             raise ValueError("The input tensor must be rank of 3")  # (num_fts, batch_size, input_dense_unit)
-        last_dim = input_shape[-1]
         num_fts = input_shape[0]
-        with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
-            shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
+        shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = init.GlorotUniform()
         self._w = self.add_weight(name='embeddings',
                                   shape=shape,
@@ -170,8 +168,7 @@ class VectorQuantizer(Layer):
             loss = 0.
             output = tf.one_hot(enc_idx, self._num_embeddings)
         else:
-            with tf.control_dependencies([enc_idx]):  # batch gather
-                quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
             q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
             loss = q_latent_loss + self._commitment_cost * e_latent_loss
@@ -246,10 +243,9 @@ class VectorQuantizerEMA(Layer):
         input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
             raise ValueError("Input shape must be 3")
-        last_dim = input_shape[-1]
+        # last_dim = input_shape[-1]
         num_fts = input_shape[0]
-        with tf.control_dependencies([tf.Assert(tf.equal(last_dim, self._embedding_dim), [last_dim])]):
-            shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
+        shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
         initializer = init.GlorotUniform()
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
@@ -274,8 +270,7 @@ class VectorQuantizerEMA(Layer):
         Returns:
           quantized tensor which has the same shape as input tensor.
         """
-        with tf.control_dependencies([inputs]):
-            w = self._w.read_value()
+        w = self._w.read_value()
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
@@ -285,8 +280,7 @@ class VectorQuantizerEMA(Layer):
             loss = 0.
             output = encodings
         else:
-            with tf.control_dependencies([enc_idx]):
-                quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
                 updated_ema_cluster_size = ma.assign_moving_average(
@@ -298,10 +292,8 @@ class VectorQuantizerEMA(Layer):
                         n + self._num_embeddings * self._epsilon) * n
                 normalised_updated_ema_w = (
                         updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
-                with tf.control_dependencies([e_latent_loss]):
-                    update_w = self._w.assign(normalised_updated_ema_w)
-                    with tf.control_dependencies([update_w]):
-                        loss = self._commitment_cost * e_latent_loss
+                self._w.assign(normalised_updated_ema_w)
+                loss = self._commitment_cost * e_latent_loss
             else:
                 loss = self._commitment_cost * e_latent_loss
 
@@ -351,7 +343,7 @@ class VqVAE(Model):
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
     def call(self, inputs, code_only=False):
-        x = tf.transpose(inputs, [1, 0, 2])
+        x = tf.transpose(inputs, [1, 0, 2])  # switch feature and batch dimension
         x = self.fd1(x)
         x = self.fd2(x)
         x = self.fd3(x)
