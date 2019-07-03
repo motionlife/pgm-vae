@@ -98,13 +98,16 @@ class FatDense(Layer):
             self.bias = None
         self.built = True
 
-    def call(self, inputs):
-        outputs = tf.matmul(inputs, self.kernel)
-        if self.use_bias:
-            outputs = outputs + self.bias
-        if self.activation is not None:
-            return self.activation(outputs)
-        return outputs
+    def call(self, inputs, fts=None):
+        if fts is None:
+            outputs = tf.matmul(inputs, self.kernel)
+            if self.use_bias:
+                outputs = outputs + self.bias
+            if self.activation is not None:
+                return self.activation(outputs)
+            return outputs
+        else:
+            return self.activation(tf.matmul(inputs, tf.gather(self.kernel, fts, axis=0)) + self.bias)
 
     def compute_output_shape(self, input_shape):
         return input_shape[:-1].concatenate(self.units)
@@ -123,7 +126,7 @@ class FatDense(Layer):
             'bias_constraint': ctr.serialize(self.bias_constraint)
         }
         base_config = super(FatDense, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
 
 class VectorQuantizer(Layer):
@@ -154,17 +157,18 @@ class VectorQuantizer(Layer):
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
-    def call(self, inputs, code_only=False):
+    def call(self, inputs, code_only=False, fts=None):
         """ Define the forward computation pass """
+        w = self._w if fts is None else tf.gather(self._w, fts, axis=0)
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
-                     - 2 * tf.matmul(inputs, self._w)
-                     + tf.reduce_sum(self._w ** 2, 1, keepdims=True))
+                     - 2 * tf.matmul(inputs, w)
+                     + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
         if code_only:
             loss = 0.
             output = tf.one_hot(enc_idx, self._num_embeddings)
         else:
-            quantized = tf.gather(tf.transpose(self._w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
             q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
             loss = q_latent_loss + self._commitment_cost * e_latent_loss
@@ -252,7 +256,7 @@ class VectorQuantizerEMA(Layer):
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
 
-    def call(self, inputs, training=None, code_only=False):
+    def call(self, inputs, training=None, code_only=False, fts=None):
         """forward pass computation
         Args:
           inputs: Tensor, final dimension must be equal to embedding_dim. All other
@@ -261,11 +265,12 @@ class VectorQuantizerEMA(Layer):
             this is set to False, the internal moving average statistics will not be
             updated.
          code_only: if only return encoding index
+         fts: indices of features, none means all of them
 
         Returns:
           quantized tensor which has the same shape as input tensor.
         """
-        w = self._w.read_value()
+        w = self._w if fts is None else tf.gather(self._w, fts, axis=0)
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
@@ -286,7 +291,7 @@ class VectorQuantizerEMA(Layer):
                 updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
                         n + self._num_embeddings * self._epsilon) * n
                 normalised_updated_ema_w = (updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
-                self._w.assign(normalised_updated_ema_w)
+                w.assign(normalised_updated_ema_w)
                 loss = self._commitment_cost * e_latent_loss
             else:
                 loss = self._commitment_cost * e_latent_loss
@@ -336,16 +341,16 @@ class VqVAE(Model):
         self.fd5 = FatDense(units[0], activation='relu')
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
-    def call(self, inputs, code_only=False):
+    def call(self, inputs, code_only=False, fts=None):
         x = tf.transpose(inputs, [1, 0, 2])  # switch feature and batch dimension
-        x = self.fd1(x)
-        x = self.fd2(x)
-        x = self.fd3(x)
-        x = self.vq_layer(x, code_only=code_only)
+        x = self.fd1(x, fts=fts)
+        x = self.fd2(x, fts=fts)
+        x = self.fd3(x, fts=fts)
+        x = self.vq_layer(x, code_only=code_only, fts=fts)
         if not code_only:
-            x = self.fd4(x)
-            x = self.fd5(x)
-            x = self.fd6(x)
+            x = self.fd4(x, fts=fts)
+            x = self.fd5(x, fts=fts)
+            x = self.fd6(x, fts=fts)
         return tf.transpose(x, [1, 0, 2])
 
     @staticmethod
