@@ -339,6 +339,7 @@ class VqVAE(Model):
         self.fd5 = FatDense(units[0], activation='relu')
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
 
+    @tf.function
     def call(self, inputs, code_only=False, fts=None):
         x = tf.transpose(inputs, [1, 0, 2])  # switch feature and batch dimension
         x = self.fd1(x, fts=fts)
