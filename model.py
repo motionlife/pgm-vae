@@ -99,15 +99,13 @@ class FatDense(Layer):
         self.built = True
 
     def call(self, inputs, fts=None):
-        if fts is None:
-            outputs = tf.matmul(inputs, self.kernel)
-            if self.use_bias:
-                outputs = outputs + self.bias
-            if self.activation is not None:
-                return self.activation(outputs)
-            return outputs
-        else:
-            return self.activation(tf.matmul(inputs, tf.gather(self.kernel, fts, axis=0)) + self.bias)
+        kernel = self.kernel if fts is None else tf.gather(self.kernel, fts, axis=0)
+        outputs = tf.matmul(inputs, kernel)
+        if self.use_bias:
+            outputs = outputs + self.bias
+        if self.activation is not None:
+            return self.activation(outputs)
+        return outputs
 
     def compute_output_shape(self, input_shape):
         return input_shape[:-1].concatenate(self.units)
