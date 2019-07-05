@@ -1,7 +1,7 @@
 import os
 import argparse
 import tensorflow as tf
-from model import VqVAE
+from core.model import VqVAE
 from baseline import baseline as bl
 
 if __name__ == '__main__':
@@ -32,43 +32,40 @@ if __name__ == '__main__':
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier))]
     num_vars = bl[name]['vars']
-    lyr0 = min(num_vars / 1.2, 300)
-    lyr1 = min(max(num_vars / 3, 1.2 * D), lyr0)
+    lyr0 = 40  # min(num_vars / 1.2, 300)
+    lyr1 = 30  # min(max(num_vars / 3, 1.2 * D), lyr0)
+
 
     def get_data(ds_type):
-        ds_xy = tf.data.experimental.CsvDataset(f'trw/{name}.{ds_type}.data', [0.] * num_vars).map(
+        ds_xy = tf.data.experimental.CsvDataset(f'data/trw/{name}.{ds_type}.data', [0.] * num_vars).map(
             lambda *x: tf.stack(x))
         ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
         ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(x, [0]))])
         return ds_x, ds_y
 
+
     train_x, train_y = get_data('train')
     model = VqVAE(units=[lyr0, lyr1], fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
-    opt = tf.keras.optimizers.Adam(lr=learn_rate)
-    # mse, categorical_crossentropy, binary_crossentropy
-    model.compile(optimizer=opt, loss='mse', metrics=['mae'])
+    optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
-    # Calculate conditional distribution from training data
-    code = model(train_x, code_only=True)
-    cnt1 = tf.stack([tf.reduce_sum(tf.boolean_mask(code[:, i, :], train_y[:, i]), 0) for i in range(num_vars)])
-    cnt0 = tf.stack([tf.reduce_sum(tf.boolean_mask(code[:, i, :], 1 - train_y[:, i]), 0) for i in range(num_vars)])
-    dist = tf.cast(cnt1 + 1, tf.float64) / tf.cast(cnt0 + cnt1 + 2, tf.float64)  # Additive (Laplace) smoothing
-    logP1 = tf.math.log(dist)
-    logP0 = tf.math.log(1 - dist)
+    # get the conditional distribution from training data
+    model.cpt(train_x, train_y)
 
-    # Calculate Pseudo Log-Likelihood
-    def get_pll(ds_x, ds_y):
-        enc = model(ds_x, code_only=True)
-        n1 = tf.stack([tf.reduce_sum(tf.boolean_mask(enc[:, i, :], ds_y[:, i]), 0) for i in range(num_vars)])
-        n0 = tf.stack([tf.reduce_sum(tf.boolean_mask(enc[:, i, :], 1 - ds_y[:, i]), 0) for i in range(num_vars)])
-        return (tf.cast(n1, tf.float64) * logP1 + tf.cast(n0, tf.float64) * logP0) / ds_y.shape[0]
+    # get pseudo log likelihood for each 3 data set
+    valid_x, valid_y = get_data('valid')
+    test_x, test_y = get_data('test')
+    pll_train = model.pseudo_log_likelihood(train_x, train_y)
+    pll_valid = model.pseudo_log_likelihood(valid_x, valid_y)
+    pll_test = model.pseudo_log_likelihood(test_x, test_y)
 
-    pll_train = get_pll(train_x, train_y)
-    pll_valid = get_pll(*get_data('valid'))
-    pll_test = get_pll(*get_data('test'))
-    out = f'-train:{tf.reduce_sum(pll_train)} valid:{tf.reduce_sum(pll_valid)} test:{tf.reduce_sum(pll_test)}'
+    # store and print output result
+    out = f'pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test}'
     with open('pll.txt', 'a') as f:
         f.write(identifier + out + '\n')
     print(identifier + out)
+
+    cmll = model.conditional_marginal_log_likelihood(tf.reshape(test_x, [-1, num_vars * (num_vars - 1)])[:, :num_vars],
+                                                     q_size=100, gibbs_samples=2000, burn_in=80)
