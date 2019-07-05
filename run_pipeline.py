@@ -1,13 +1,12 @@
 import os
 import tensorflow as tf
 import numpy as np
-from model import VqVAE
-from baseline import baseline
+from core.model import VqVAE
+from baseline import baseline as bl
 
 if __name__ == '__main__':
     # todo: arg parse parameters from command
     # os.environ['CUDA_VISIBLE_DEVICES'] = '-1' # training on cpu
-    bl = baseline()
     name = 'nltcs'
     num_vars = bl[name]['vars']
     batch_size = 64
@@ -25,7 +24,7 @@ if __name__ == '__main__':
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir)]
 
     ds_size = bl[name]['train']
-    train_xy = tf.data.experimental.CsvDataset(f'trw/{name}.train.data', [0.] * num_vars).map(
+    train_xy = tf.data.experimental.CsvDataset(f'data/trw/{name}.train.data', [0.] * num_vars).map(
         lambda *x: tf.stack(x)).shuffle(ds_size // 4)
     train_xs = train_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))
     train_xx = train_xs.map(lambda x: (x, x)).batch(batch_size).prefetch(100)
