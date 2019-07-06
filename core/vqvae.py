@@ -47,7 +47,7 @@ class VectorQuantizer(Layer):
         enc_idx = tf.argmin(distances, 2)
         if code_only:
             loss = 0.
-            output = tf.one_hot(enc_idx, self._num_embeddings)
+            output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
         else:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
@@ -159,7 +159,7 @@ class VectorQuantizerEMA(Layer):
         encodings = tf.one_hot(enc_idx, self._num_embeddings)
         if code_only:
             loss = 0.
-            output = encodings
+            output = encodings if fts is None else enc_idx
         else:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
