@@ -39,6 +39,7 @@ if __name__ == '__main__':
     def get_data(ds_type):
         ds_xy = tf.data.experimental.CsvDataset(f'data/trw/{name}.{ds_type}.data', [0.] * num_vars).map(
             lambda *x: tf.stack(x))
+        # todo: must re-mung data, using a single frame as feed
         ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
         ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(x, [0]))])
         return ds_x, ds_y
