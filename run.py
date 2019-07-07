@@ -32,14 +32,14 @@ if __name__ == '__main__':
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier))]
     num_vars = bl[name]['vars']
-    lyr0 = 40  # min(num_vars / 1.2, 300)
-    lyr1 = 30  # min(max(num_vars / 3, 1.2 * D), lyr0)
+    lyr0 = min(num_vars / 1.2, 300)
+    lyr1 = min(max(num_vars / 3, 1.2 * D), lyr0)
 
 
     def get_data(ds_type):
         ds_xy = tf.data.experimental.CsvDataset(f'data/trw/{name}.{ds_type}.data', [0.] * num_vars).map(
             lambda *x: tf.stack(x))
-        # todo: must re-mung data, using a single frame as feed
+        # todo: don't change the order of x's feature!!!
         ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
         ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(x, [0]))])
         return ds_x, ds_y
@@ -49,11 +49,11 @@ if __name__ == '__main__':
     model = VqVAE(units=[lyr0, lyr1], fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
-    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks)
+    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=1)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
-    model.cpt(train_x, train_y)
+    model.dist = model.cpt(train_x, train_y)
 
     # get pseudo log likelihood for each 3 data set
     valid_x, valid_y = get_data('valid')
@@ -69,4 +69,4 @@ if __name__ == '__main__':
     print(identifier + out)
 
     cmll = model.conditional_marginal_log_likelihood(tf.reshape(test_x, [-1, num_vars * (num_vars - 1)])[:, :num_vars],
-                                                     q_size=100, gibbs_samples=2000, burn_in=80)
+                                                     q_size=100, num_smp=2000, burn_in=80)
