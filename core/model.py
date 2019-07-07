@@ -28,9 +28,9 @@ class VqVAE(Model):
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
         self.dist = tf.zeros([fts + 1, emb], dtype=tf.float64)
 
-    @tf.function
     def call(self, inputs, code_only=False, fts=None):
-        x = tf.transpose(inputs, [1, 0, 2])  # switch feature and batch dimension
+        # switch feature and batch dimension
+        x = tf.transpose(inputs, [1, 0, 2]) if fts is None else inputs
         x = self.fd1(x, fts=fts)
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
@@ -43,79 +43,96 @@ class VqVAE(Model):
         return x
 
     @tf.function
-    def cpt(self, x, y):
-        batch_size, num_vars = y.shape
-        py1 = tf.cast(tf.expand_dims(tf.reduce_sum(y, 0) + 1, 1), tf.float64) / tf.cast(batch_size + 2, tf.float64)
+    def count(self, x, y):
+        """return the total number of (y=1, x=k) and (y=0, x=k) from data"""
         y = tf.transpose(y)
+
+        def fn(e): return tf.reduce_sum(tf.boolean_mask(e[0], e[1]), 0)
+
         code = self(x, code_only=True)  # shape=(num_vars, batch_size, K)
-        n1 = tf.map_fn(lambda e: tf.reduce_sum(tf.boolean_mask(e[0], e[1]), 0), elems=[code, y], dtype=code.dtype)
-        n0 = tf.map_fn(lambda e: tf.reduce_sum(tf.boolean_mask(e[0], 1 - e[1]), 0), elems=[code, y], dtype=code.dtype)
-        n1 = tf.cast(n1 + 1, tf.float64)   # Additive(Laplace) smoothing
+        n1 = tf.map_fn(fn, elems=[code, y], dtype=code.dtype, back_prop=False)
+        n0 = tf.map_fn(fn, elems=[code, 1 - y], dtype=code.dtype, back_prop=False)
+        return n1, n0
+
+    @tf.function
+    def cpt(self, x, y):
+        """return the distribution of p(y=1|x=k) from training data"""
+        n1, n0 = self.count(x, y)
+        n1 = tf.cast(n1 + 1, tf.float64)  # shape=(num_vars, K), Additive(Laplace) smoothing
         n0 = tf.cast(n0 + 1, tf.float64)
-        # p(y=1|x=k) = p(x=k,y=1)/p(x=k) = p(x=k|y=1)*p(y=1)/p(x=k)
-        self.dist = n1 * py1 / (n1 * py1 + n0 * (1 - py1))  # shape=(num_vars, K)
+        return n1 / (n1 + n0)
 
     @tf.function
     def pseudo_log_likelihood(self, x, y):
-        batch_size, num_vars = y.shape
-        lp1 = tf.math.log(self.dist)
-        lp0 = tf.math.log(1 - self.dist)
-        y = tf.transpose(y)
-        code = self(x, code_only=True)
-        n1 = tf.map_fn(lambda e: tf.reduce_sum(tf.boolean_mask(e[0], e[1]), 0), elems=[code, y], dtype=code.dtype)
-        n0 = tf.map_fn(lambda e: tf.reduce_sum(tf.boolean_mask(e[0], 1 - e[1]), 0), elems=[code, y], dtype=code.dtype)
-        return tf.reduce_sum(tf.cast(n1, tf.float64) * lp1 + tf.cast(n0, tf.float64) * lp0) / batch_size
+        """calculate the average pseudo log likelihood for input data"""
+        lp1 = tf.math.log(self.dist)  # log_p(y=1|x=k)
+        lp0 = tf.math.log(1 - self.dist)  # log_p(y=0|x=k)
+        n1, n0 = self.count(x, y)
+        return tf.reduce_sum(tf.cast(n1, tf.float64) * lp1 + tf.cast(n0, tf.float64) * lp0) / y.shape[0]
 
     @tf.function
     def get_probability(self, x, fts=None):
         """get the conditional probability (y_i=1) of inputs x from this model's conditional distribution
         Args:
-            x: the test data, shape=(batch_size, num_selected_vars, num_vars-1)
+            x: the test data, must be binary, shape=(num_selected_fts, batch_size, num_vars-1)
             fts: the indices of selected features (corresponding to their own neural net)
-        Return: a tensor contains conditional probability, shape=(batch_size, num_selected_fts)
+        Return: a tensor contains conditional probability, shape=(num_selected_fts, batch_size)
         """
-        enc_idx = self(x, code_only=True, fts=fts)  # shape=(num_selected_vars, batch_size)
+        enc_idx = self(x, code_only=True, fts=fts)  # shape=(num_selected_fts, batch_size)
         prb = tf.cast(tf.gather(self.dist, fts, axis=0), tf.float32)
-        prb = tf.gather(prb, enc_idx, axis=1, batch_dims=1)
-        return tf.transpose(prb)  # shape=(batch_size, num_selected_vars)
+        return tf.gather(prb, enc_idx, axis=1, batch_dims=1)
 
-    @tf.function
-    def conditional_marginal_log_likelihood(self, x, q_size, gibbs_samples, burn_in):
+    def conditional_marginal_log_likelihood(self, x, q_size, num_smp, burn_in, verbose=False):
         """calculate the conditional marginal log-likelihood of test data points via gibbs sampling
         Args:
             x: the test data, shape=(batch_size, num_vars)
             q_size: number of variables in each partition block, except for the last one
-            gibbs_samples: number of iteration for gibbs sampling
+            num_smp: number of total gibbs samples need to be generated
             burn_in: to ignore some number of samples at the beginning
+            verbose: whether to print info during each sampling process
         Return:
             the conditional marginal log-likelihood for the batch of data
         """
-        bs, dim = x.shape
-        blk = tf.cast(tf.math.ceil(dim / q_size), tf.int32)
-        blk_vol = tf.concat([tf.tile([q_size], [blk - 1]), [dim - q_size * (blk - 1)]], axis=0)
-        mark = tf.range(blk) * q_size
-        idx = tf.stack([[i for i in tf.range(dim) if tf.not_equal(i, j)] for j in tf.range(dim)])
-        idx = tf.tile(tf.expand_dims(idx, 0), [bs, 1, 1])  # too large!!!
-        smp = tf.Variable(tf.tile(tf.expand_dims(x, 1), [1, blk, 1]), trainable=False, name='samples')
-        count = tf.Variable(tf.zeros([bs, dim]), trainable=False, name='y1_count')
-        for i in tf.range(gibbs_samples * q_size):
-            yid = mark + tf.math.mod(i, blk_vol)
-            xs = tf.gather(smp, tf.gather(idx, yid, axis=1), axis=2, batch_dims=2)  # too expensive!!!
-            prb = self.get_probability(xs, fts=dim - 1 - yid)  # todo: correct this after data munging
-            gibbs = tf.cast(tf.random.uniform([bs, blk], 0, 1) < prb, smp.dtype)
-            for b in tf.range(blk):
-                smp[:, b, yid[b]].assign(gibbs[:, b])
-            if i > burn_in * q_size:
-                for b in tf.range(blk):
-                    count[:, yid[b]].assign_add(gibbs[:, b])
-            tf.print('generated ith component')
+        batch_size, dim = x.shape
+        blocks = tf.cast(tf.math.ceil(dim / q_size), tf.int32)
+        vol = tf.concat([tf.tile([q_size], [blocks - 1]), [dim - q_size * (blocks - 1)]], axis=0)
+        bid = tf.range(blocks)
+        mark = bid * q_size
+        state = tf.Variable(tf.tile(tf.expand_dims(x, 0), [blocks, 1, 1]), trainable=False, name='samples')
+        cnt = tf.Variable(tf.zeros(x.shape), trainable=False, name='y1_counter')
+        @tf.function
+        def sampling():
+            for i in tf.range(num_smp * q_size):
+                y = mark + tf.math.mod(i, vol)
+                xs = tf.map_fn(
+                    lambda b: tf.gather(state[b], tf.concat([tf.range(0, y[b]), tf.range(y[b] + 1, dim)], 0), axis=1),
+                    bid, state.dtype, back_prop=0)
+                prb = self.get_probability(xs, fts=y)
+                gibbs = tf.cast(tf.random.uniform([blocks, batch_size], 0, 1) < prb, state.dtype)
+                tf.map_fn(lambda b: state[b, :, y[b]].assign(gibbs[b]), bid, state.dtype, back_prop=0)
+                if i > burn_in * q_size:
+                    tf.map_fn(lambda b: cnt[:, y[b]].assign(cnt[:, y[b]] + gibbs[b]), bid, cnt.dtype, back_prop=0)
+                if verbose:
+                    tf.print(tf.strings.format('# of samples: {}, component: {}', [tf.math.ceil(i / q_size), y[0]]))
 
-        cmll = 0.
-        for b in tf.range(blk):
-            cmll += tf.reduce_sum(tf.math.log((count[:, b, mark[b]:mark[b] + blk_vol[b]]) / (gibbs_samples - burn_in)))
-
-        return cmll / bs
+        sampling()
+        cml = cnt / tf.concat([tf.ones([1, dim - vol[-1]]) * (num_smp - burn_in),
+                               tf.ones([1, vol[-1]]) * (num_smp - burn_in) * tf.cast(q_size / vol[-1], tf.float32)], 1)
+        return tf.reduce_sum(x * tf.math.log(cml + 1e-10) + (1 - x) * tf.math.log(1 - cml + 1e-10)) / batch_size
 
 
 if __name__ == '__main__':
-    print('test conditional_marginal_log_likelihood')
+    import timeit
+    print('Test function ---> model.conditional_marginal_log_likelihood')
+    num_vars = 150
+    data = tf.cast(tf.random.uniform([5000, num_vars], minval=0, maxval=2, dtype=tf.int32), tf.float32)
+    train_x = tf.stack([tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]) for x in data])
+    model = VqVAE(units=[70, 30], fts=num_vars - 1, dim=20, emb=40, cost=0.25, decay=0.99, ema=True)
+    optimizer = tf.keras.optimizers.Adam(lr=0.001)
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
+    model.fit(train_x, train_x, batch_size=128, epochs=2, verbose=1)
+    model.dist = tf.random.uniform([num_vars, 40], minval=0, maxval=1, dtype=tf.float64)
+
+    print(timeit.timeit(
+      lambda: print(model.conditional_marginal_log_likelihood(data, q_size=10, num_smp=100, burn_in=10, verbose=True)),
+      number=1))
