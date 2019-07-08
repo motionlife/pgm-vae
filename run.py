@@ -27,46 +27,50 @@ if __name__ == '__main__':
     else:
         gpus = tf.config.experimental.list_physical_devices('GPU')
         tf.config.experimental.set_visible_devices(gpus[device], 'GPU')
-        # tf.config.experimental.set_memory_growth(gpus[device], True)  # only grow the memory usage as is needed
+        tf.config.experimental.set_memory_growth(gpus[0], True)  # only grow the memory usage as is needed
+        tf.config.experimental.set_memory_growth(gpus[1], True)
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier))]
-    num_vars = bl[name]['vars']
-    lyr0 = min(num_vars / 1.2, 300)
-    lyr1 = min(max(num_vars / 3, 1.2 * D), lyr0)
+    n_var = bl[name]['vars']
+    lyr0 = max(min(n_var / 1.5, 300), D)
+    lyr1 = max(min(n_var / 3, lyr0), D)
+    lyr2 = max(min(n_var / 5, lyr1), D)
+    idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
 
-    def get_data(ds_type):
-        ds_xy = tf.data.experimental.CsvDataset(f'data/trw/{name}.{ds_type}.data', [0.] * num_vars).map(
-            lambda *x: tf.stack(x))
-        # todo: don't change the order of x's feature!!!
-        ds_x = tf.stack([x for x in ds_xy.map(lambda x: tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]))])
-        ds_y = tf.stack([y for y in ds_xy.map(lambda x: tf.reverse(x, [0]))])
-        return ds_x, ds_y
+    def get_data(tvt):
+        # todo: design data pipeline for large dataset, below only for dataset less than 4G after transformed
+        ds = tf.data.experimental.CsvDataset(f'data/trw/{name}.{tvt}.data', [0.] * n_var).map(lambda *x: tf.stack(x))
+        ys = tf.stack([y for y in ds])
+
+        @tf.function
+        def make_xs():
+            return tf.map_fn(lambda x: tf.reshape(tf.gather(tf.tile(x, [n_var]), idx), [n_var, -1]), ys, back_prop=0)
+
+        return make_xs(), ys
 
 
     train_x, train_y = get_data('train')
-    model = VqVAE(units=[lyr0, lyr1], fts=num_vars - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
+    model = VqVAE(units=[lyr0, lyr1, lyr2], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
-    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=1)
+    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=0)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
     model.dist = model.cpt(train_x, train_y)
 
     # get pseudo log likelihood for each 3 data set
-    valid_x, valid_y = get_data('valid')
     test_x, test_y = get_data('test')
     pll_train = model.pseudo_log_likelihood(train_x, train_y)
-    pll_valid = model.pseudo_log_likelihood(valid_x, valid_y)
+    pll_valid = model.pseudo_log_likelihood(*get_data('valid'))
     pll_test = model.pseudo_log_likelihood(test_x, test_y)
+    # calculate cmll
+    cmll = model.conditional_marginal_log_likelihood(test_y, q_size=n_var // 5, num_smp=3000, burn_in=100, verbose=0)
 
     # store and print output result
-    out = f'pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test}'
-    with open('pll.txt', 'a') as f:
+    out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{cmll}'
+    with open('result.txt', 'a') as f:
         f.write(identifier + out + '\n')
     print(identifier + out)
-
-    cmll = model.conditional_marginal_log_likelihood(tf.reshape(test_x, [-1, num_vars * (num_vars - 1)])[:, :num_vars],
-                                                     q_size=100, num_smp=2000, burn_in=80)
