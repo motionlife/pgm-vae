@@ -18,16 +18,16 @@ class VqVAE(Model):
         # regularization: dropout layer or L2 regularizer
         self.fd1 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
         self.fd2 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
-        self.fd3 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
+        self.fd3 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
+        self.fd4 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
         self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost,
                                            decay=decay) if ema else VectorQuantizer(embedding_dim=dim,
                                                                                     num_embeddings=emb,
                                                                                     commitment_cost=cost)
-        self.fd4 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
-        self.fd4 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd5 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
+        self.fd5 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
+        self.fd6 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
+        self.fd7 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
+        self.fd8 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
         self.dist = tf.zeros([fts + 1, emb], dtype=tf.float64)
 
     def call(self, inputs, code_only=False, fts=None):
@@ -36,11 +36,13 @@ class VqVAE(Model):
         x = self.fd1(x, fts=fts)
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
+        x = self.fd4(x, fts=fts)
         x = self.vq_layer(x, code_only=code_only, fts=fts)
         if not code_only:
-            x = self.fd4(x, fts=fts)
             x = self.fd5(x, fts=fts)
             x = self.fd6(x, fts=fts)
+            x = self.fd7(x, fts=fts)
+            x = self.fd8(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
         return x
 
@@ -84,11 +86,11 @@ class VqVAE(Model):
         prb = tf.cast(tf.gather(self.dist, fts, axis=0), tf.float32)
         return tf.gather(prb, enc_idx, axis=1, batch_dims=1)
 
-    def conditional_marginal_log_likelihood(self, x, q_size, num_smp, burn_in, verbose=True):
+    def conditional_marginal_log_likelihood(self, x, p1, num_smp, burn_in, verbose=True):
         """calculate the conditional marginal log-likelihood of test data points via gibbs sampling
         Args:
             x: the test data, shape=(batch_size, num_vars)
-            q_size: number of variables in each partition block, except for the last one
+            p1: number of variables in each partition block, except for the last one
             num_smp: number of total gibbs samples need to be generated
             burn_in: to ignore some number of samples at the beginning
             verbose: whether to print info during each sampling process
@@ -96,15 +98,16 @@ class VqVAE(Model):
             the conditional marginal log-likelihood for the batch of data
         """
         batch_size, dim = x.shape
-        blocks = tf.cast(tf.math.ceil(dim / q_size), tf.int32)
-        vol = tf.concat([tf.tile([q_size], [blocks - 1]), [dim - q_size * (blocks - 1)]], axis=0)
+        blocks = tf.cast(tf.math.ceil(dim / p1), tf.int32)
+        vol = tf.concat([tf.tile([p1], [blocks - 1]), [dim - p1 * (blocks - 1)]], axis=0)
         bid = tf.range(blocks)
-        marker = bid * q_size
+        marker = bid * p1
         state = tf.Variable(tf.tile(tf.expand_dims(x, 0), [blocks, 1, 1]), trainable=False, name='sample_state')
         cnt = tf.Variable(tf.zeros(x.shape), trainable=False, name='y1_counter')
+
         @tf.function
         def sampling():
-            for i in tf.range(num_smp * q_size):
+            for i in tf.range(num_smp * p1):
                 y = marker + tf.math.mod(i, vol)
                 xs = tf.map_fn(
                     lambda b: tf.gather(state[b], tf.concat([tf.range(0, y[b]), tf.range(y[b] + 1, dim)], 0), axis=1),
@@ -112,24 +115,26 @@ class VqVAE(Model):
                 prb = self.get_probability(xs, fts=y)
                 gibbs = tf.cast(tf.random.uniform([blocks, batch_size], 0, 1) < prb, state.dtype)
                 tf.map_fn(lambda b: state[b, :, y[b]].assign(gibbs[b]), bid, state.dtype, back_prop=0)
-                if i > burn_in * q_size:
+                if i > burn_in * p1:
                     tf.map_fn(lambda b: cnt[:, y[b]].assign(cnt[:, y[b]] + gibbs[b]), bid, cnt.dtype, back_prop=0)
                 if verbose:
-                    tf.print(tf.strings.format('# of samples: {}, component: {}', [i // q_size, y[0]]))
+                    tf.print(tf.strings.format('# of samples: {}, component: {}', [i // p1, y[0]]))
 
         sampling()
-        cml = cnt / tf.concat([tf.ones([1, dim - vol[-1]]) * (num_smp - burn_in),
-                               tf.ones([1, vol[-1]]) * (num_smp - burn_in) * tf.cast(q_size / vol[-1], tf.float32)], 1)
-        return tf.reduce_sum(x * tf.math.log(cml + 1e-10) + (1 - x) * tf.math.log(1 - cml + 1e-10)) / batch_size
+        valid = num_smp - burn_in
+        valid_end = valid * p1 // tf.cast(vol[-1], tf.float32),
+        cmll = cnt / tf.concat([tf.ones([1, dim - vol[-1]]) * valid, tf.ones([1, vol[-1]]) * valid_end], 1)
+        return tf.reduce_sum(x * tf.math.log(cmll + 1e-10) + (1 - x) * tf.math.log(1 - cmll + 1e-10)) / batch_size
 
 
 if __name__ == '__main__':
     import timeit
+
     print('Test function ---> model.conditional_marginal_log_likelihood')
     num_vars = 150
     data = tf.cast(tf.random.uniform([1000, num_vars], minval=0, maxval=2, dtype=tf.int32), tf.float32)
     train_x = tf.stack([tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]) for x in data])
-    model = VqVAE(units=[70, 30], fts=num_vars - 1, dim=20, emb=40, cost=0.25, decay=0.99, ema=True)
+    model = VqVAE(units=[70, 50, 30], fts=num_vars - 1, dim=20, emb=40, cost=0.25, decay=0.99, ema=True)
     optimizer = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
     model.fit(train_x, train_x, batch_size=128, epochs=2, verbose=1)
@@ -137,5 +142,5 @@ if __name__ == '__main__':
     model.dist = rnd / tf.reduce_sum(rnd, 1, keepdims=True)
 
     print(timeit.timeit(
-      lambda: print(model.conditional_marginal_log_likelihood(data, q_size=10, num_smp=100, burn_in=10, verbose=True)),
-      number=1))
+        lambda: print(model.conditional_marginal_log_likelihood(data, p1=10, num_smp=20, burn_in=10, verbose=True)),
+        number=1))
