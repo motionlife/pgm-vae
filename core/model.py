@@ -18,11 +18,13 @@ class VqVAE(Model):
         # regularization: dropout layer or L2 regularizer
         self.fd1 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
         self.fd2 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
+        self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd3 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
         self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost,
                                            decay=decay) if ema else VectorQuantizer(embedding_dim=dim,
                                                                                     num_embeddings=emb,
                                                                                     commitment_cost=cost)
+        self.fd4 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd4 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
         self.fd5 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
         self.fd6 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
