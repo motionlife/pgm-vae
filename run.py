@@ -31,7 +31,7 @@ if __name__ == '__main__':
         #     tf.config.experimental.set_memory_growth(g, True)  # only grow the memory usage as is needed
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier))]
+    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
     lyr0 = max(min(n_var / 2, 200), D)
     lyr1 = max(min(n_var / 3, lyr0), D)
