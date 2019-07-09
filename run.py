@@ -52,7 +52,7 @@ if __name__ == '__main__':
     model = VqVAE(units=[lyr0, lyr1, lyr2], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
-    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=1)
+    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=0)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     pll_valid = model.pseudo_log_likelihood(*get_data('valid'))
     pll_test = model.pseudo_log_likelihood(test_x, test_y)
     # calculate cmll
-    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=200, verbose=1)
+    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=200, verbose=0)
 
     # store and print output result
     out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{cmll}'
