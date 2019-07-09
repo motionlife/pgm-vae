@@ -17,11 +17,12 @@ if __name__ == '__main__':
     parser.add_argument('--decay', '-g', type=float, default=0.99, help='EMA decay rate')
     parser.add_argument('--seed', '-s', type=int, default=0, help='integer for random seed')
     parser.add_argument('--device', '-u', type=int, default=0, help='which GPU to use, -1 means only use CPU')
+    parser.add_argument('--verbose', '-v', action='store_true', help='verbose mode when do model fitting and sampling')
     args = parser.parse_args()
-    name, K, D, batch_size, epochs, learn_rate, beta, ema, gamma, seed, device = (args.name, args.embedding, args.dim,
-                                                                                  args.batch, args.epoch, args.rate,
-                                                                                  args.cost, args.ema, args.decay,
-                                                                                  args.seed, args.device)
+    name, K, D, bs, epochs, learn_rate, beta, ema, gamma, seed, device, vb = (args.name, args.embedding, args.dim,
+                                                                              args.batch, args.epoch, args.rate,
+                                                                              args.cost, args.ema, args.decay,
+                                                                              args.seed, args.device, args.verbose)
     if device == -1:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # training on cpu
     else:
@@ -30,7 +31,7 @@ if __name__ == '__main__':
         # for g in gpus:
         #     tf.config.experimental.set_memory_growth(g, True)  # only grow the memory usage as is needed
     tf.random.set_seed(seed)
-    identifier = f"{name}_K-{K}_D-{D}_bs-{batch_size}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
+    identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
     lyr0 = max(min(n_var / 2, 200), D)
@@ -52,7 +53,7 @@ if __name__ == '__main__':
     model = VqVAE(units=[lyr0, lyr1, lyr2], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
-    model.fit(train_x, train_x, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=0)
+    model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     pll_valid = model.pseudo_log_likelihood(*get_data('valid'))
     pll_test = model.pseudo_log_likelihood(test_x, test_y)
     # calculate cmll
-    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=200, verbose=0)
+    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=200, verbose=vb)
 
     # store and print output result
     out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{cmll}'

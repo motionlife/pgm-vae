@@ -8,7 +8,7 @@ stage 2. Calculate the pseudo log-likelihood based on the training auto encoder.
 $ python run.py --help
 usage: run.py [-h] --name NAME --embedding EMBEDDING --dim DIM [--batch BATCH]
               [--epoch EPOCH] [--rate RATE] [--cost COST] [--ema]
-              [--decay DECAY] [--seed SEED] [--device DEVICE]
+              [--decay DECAY] [--seed SEED] [--device DEVICE] [--verbose]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -28,9 +28,10 @@ optional arguments:
   --seed SEED, -s SEED  integer for random seed
   --device DEVICE, -u DEVICE
                         which GPU to use, -1 means only use CPU
+  --verbose, -v         verbose mode when do model fitting and sampling
 ```
 Author: Hao Xiong (haoxiong@outlook.com)
 
 ##Required package:
  
- Tensorflow 2.0 beta
+ Tensorflow 2.0 beta1
