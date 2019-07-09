@@ -20,7 +20,7 @@ parallel --bar --retry-failed --joblog logs/log_ranj -j2 \
 'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=0 --ema' ::: \
 kosarek retail audio netflix jester ::: \
 100 150 ::: \
-70 100 ::: \
+50 100 ::: \
 128 ::: \
 250 ::: \
 0.0005 0.001 ::: \
@@ -33,7 +33,7 @@ kosarek retail audio netflix jester ::: \
 #'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=1 --ema' ::: \
 #webkb ::: \
 #200 ::: \
-#100 150 200 ::: \
+#50 100 ::: \
 #128 ::: \
 #250 ::: \
 #0.0005 0.001 ::: \
