@@ -132,15 +132,15 @@ if __name__ == '__main__':
 
     print('Test function ---> model.conditional_marginal_log_likelihood')
     num_vars = 150
-    data = tf.cast(tf.random.uniform([1000, num_vars], minval=0, maxval=2, dtype=tf.int32), tf.float32)
+    data = tf.cast(tf.random.uniform([5000, num_vars], minval=0, maxval=2, dtype=tf.int32), tf.float32)
     train_x = tf.stack([tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]) for x in data])
     model = VqVAE(units=[70, 50, 30], fts=num_vars - 1, dim=20, emb=40, cost=0.25, decay=0.99, ema=True)
     optimizer = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
-    model.fit(train_x, train_x, batch_size=128, epochs=2, verbose=1)
-    rnd = tf.random.uniform([num_vars, 40], minval=0, maxval=1, dtype=tf.float64)
+    model.fit(train_x, train_x, batch_size=256, epochs=2, verbose=1)
+    rnd = tf.random.uniform([num_vars, 15], minval=0, maxval=1, dtype=tf.float64)
     model.dist = rnd / tf.reduce_sum(rnd, 1, keepdims=True)
 
     print(timeit.timeit(
-        lambda: print(model.conditional_marginal_log_likelihood(data, p1=10, num_smp=20, burn_in=10, verbose=True)),
+        lambda: print(model.conditional_marginal_log_likelihood(data, p1=num_vars // 12, num_smp=1000, burn_in=100)),
         number=1))
