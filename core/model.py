@@ -7,7 +7,7 @@
 import tensorflow as tf
 from tensorflow.python.keras import Model
 from core.dense import FatDense
-from core.vqvae import VectorQuantizerEMA, VectorQuantizer
+from core.quantizer import VectorQuantizerEMA, VectorQuantizer
 
 
 class VqVAE(Model):
