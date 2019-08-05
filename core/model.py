@@ -15,24 +15,26 @@ class VqVAE(Model):
 
     def __init__(self, units, fts, dim, emb, cost=0.25, decay=0.99, ema=True):
         super(VqVAE, self).__init__(name='vq_vae')
-        # regularization: dropout layer or L2 regularizer
-        self.fd1 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fd2 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd3 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
+        self.fd0 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
+        self.fd1 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
+        self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
+        self.fd3 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd4 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
         self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost,
                                            decay=decay) if ema else VectorQuantizer(embedding_dim=dim,
                                                                                     num_embeddings=emb,
                                                                                     commitment_cost=cost)
-        self.fd5 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
-        self.fd6 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd7 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fd8 = FatDense(fts, activation='sigmoid')  # any better activation with [0,1] output?
+        self.fd5 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
+        self.fd6 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
+        self.fd7 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
+        self.fd8 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
+        self.fd9 = FatDense(fts, activation='sigmoid', kernel_initializer='glorot_uniform')
         self.dist = tf.zeros([fts + 1, emb], dtype=tf.float64)
 
     def call(self, inputs, code_only=False, fts=None):
         # switch feature and batch dimension
         x = tf.transpose(inputs, [1, 0, 2]) if fts is None else inputs
+        x = self.fd0(x, fts=fts)
         x = self.fd1(x, fts=fts)
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
@@ -43,6 +45,7 @@ class VqVAE(Model):
             x = self.fd6(x, fts=fts)
             x = self.fd7(x, fts=fts)
             x = self.fd8(x, fts=fts)
+            x = self.fd9(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
         return x
 
