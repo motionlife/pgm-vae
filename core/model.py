@@ -7,7 +7,8 @@
 import tensorflow as tf
 from tensorflow.python.keras import Model
 from core.dense import FatDense
-from core.quantizer import VectorQuantizerEMA, VectorQuantizer
+# from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerNaive
+from extern.vqvae import VectorQuantizer, VectorQuantizerEMA
 
 
 class VqVAE(Model):
@@ -20,18 +21,21 @@ class VqVAE(Model):
         self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd3 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd4 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
-        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost,
-                                           decay=decay) if ema else VectorQuantizer(embedding_dim=dim,
-                                                                                    num_embeddings=emb,
-                                                                                    commitment_cost=cost)
+        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay,
+                                           num_var=fts + 1) if ema else VectorQuantizer(embedding_dim=dim,
+                                                                                        num_embeddings=emb,
+                                                                                        commitment_cost=cost,
+                                                                                        num_var=fts + 1)
+        # self.fd4 = FatDense(dim, activation='sigmoid', kernel_initializer='glorot_uniform')
+        # self.vq_layer = VectorQuantizerNaive(dim, name='naive_vector_quantizer')
         self.fd5 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd6 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd7 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
         self.fd8 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
         self.fd9 = FatDense(fts, activation='sigmoid', kernel_initializer='glorot_uniform')
-        self.dist = tf.zeros([fts + 1, emb], dtype=tf.float64)
+        self.dist = tf.zeros([fts + 1, emb if emb is not None else 2 ** dim], dtype=tf.float64)
 
-    def call(self, inputs, code_only=False, fts=None):
+    def call(self, inputs, training=None, code_only=False, fts=None):
         # switch feature and batch dimension
         x = tf.transpose(inputs, [1, 0, 2]) if fts is None else inputs
         x = self.fd0(x, fts=fts)
@@ -39,7 +43,7 @@ class VqVAE(Model):
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
         x = self.fd4(x, fts=fts)
-        x = self.vq_layer(x, code_only=code_only, fts=fts)
+        x, loss = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
         if not code_only:
             x = self.fd5(x, fts=fts)
             x = self.fd6(x, fts=fts)
@@ -47,6 +51,7 @@ class VqVAE(Model):
             x = self.fd8(x, fts=fts)
             x = self.fd9(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
+        self.add_loss(loss)
         return x
 
     @tf.function
