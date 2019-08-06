@@ -31,8 +31,8 @@ class VectorQuantizer(Layer):
         input_shape = tf.TensorShape(input_shape)
         if input_shape.rank != 3:
             raise ValueError("The input tensor must be rank of 3")  # (num_fts, batch_size, input_dense_unit)
-        num_fts = input_shape[0]
-        shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
+        num_var = input_shape[0]
+        shape = tf.TensorShape([num_var, self._embedding_dim, self._num_embeddings])
         initializer = init.GlorotUniform()
         self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, trainable=True)
         # Make sure to call the `build` method at the end or set self.built = True
@@ -44,7 +44,7 @@ class VectorQuantizer(Layer):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmin(distances, 2)
+        enc_idx = tf.argmax(-distances, 2)
         if code_only:
             loss = 0.
             output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
@@ -125,13 +125,13 @@ class VectorQuantizerEMA(Layer):
         if input_shape.rank != 3:
             raise ValueError("Input shape must be 3")
         # last_dim = input_shape[-1]
-        num_fts = input_shape[0]
-        shape = tf.TensorShape([num_fts, self._embedding_dim, self._num_embeddings])
+        num_var = input_shape[0]
+        shape = tf.TensorShape([num_var, self._embedding_dim, self._num_embeddings])
         initializer = init.GlorotUniform()
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, use_resource=True)
-        self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_fts, self._num_embeddings],
+        self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_var, self._num_embeddings],
                                                  initializer=tf.constant_initializer(0), use_resource=True)
         self._ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
         self._ema_w.assign(self._w.read_value())
@@ -155,7 +155,7 @@ class VectorQuantizerEMA(Layer):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmin(distances, 2)
+        enc_idx = tf.argmax(-distances, 2)
         encodings = tf.one_hot(enc_idx, self._num_embeddings)
         if code_only:
             loss = 0.
@@ -176,7 +176,6 @@ class VectorQuantizerEMA(Layer):
                 loss = self._commitment_cost * e_latent_loss
             else:
                 loss = self._commitment_cost * e_latent_loss
-
             output = inputs + tf.stop_gradient(quantized - inputs)
 
         self.add_loss(loss)
@@ -203,3 +202,23 @@ class VectorQuantizerEMA(Layer):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
+
+
+class VectorQuantizerNaive(Layer):
+    def __init__(self, dim, **kwargs):
+        self.dim = dim
+        self.num_embeddings = 2 ** dim
+        self.power = 2 ** tf.range(dim)
+        super(VectorQuantizerNaive, self).__init__(**kwargs)
+
+    # def build(self, input_shape):
+    #     input_shape = tf.TensorShape(input_shape)
+    #     self.num_fts = input_shape[0]
+
+    def call(self, inputs, code_only=False, fts=None):
+        output = tf.minimum(tf.maximum(inputs - 0.4999999999, 0) * 1_000_000_000, 1)
+        if code_only:
+            # output = tf.minimum(tf.maximum(inputs - 0.4999999999, 0) * 1_000_000_000, 1)
+            enc_idx = tf.cast(tf.reduce_sum(tf.cast(output, tf.int32) * self.power, axis=-1), tf.int64)
+            output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
+        return output
