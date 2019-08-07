@@ -38,8 +38,7 @@ class VectorQuantizer(base.Module):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-
-        encoding_indices = tf.argmax(- distances, 2)
+        encoding_indices = tf.argmin(distances, 2)
         if code_only:
             loss = 0.
             output = tf.one_hot(encoding_indices, self.num_embeddings) if fts is None else encoding_indices
@@ -81,10 +80,8 @@ class VectorQuantizerEMA(base.Module):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-
-        encoding_indices = tf.argmax(- distances, 2)
+        encoding_indices = tf.argmin(distances, 2)
         encodings = tf.one_hot(encoding_indices, self.num_embeddings)
-
         if code_only:
             loss = 0.
             output = encodings if fts is None else encoding_indices
