@@ -38,13 +38,13 @@ class VectorQuantizer(Layer):
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
 
-    def call(self, inputs, code_only=False, fts=None):
+    def call(self, inputs, training=None, code_only=False, fts=None):
         """ Define the forward computation pass """
         w = self._w if fts is None else tf.gather(self._w, fts, axis=0)
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmax(-distances, 2)
+        enc_idx = tf.argmin(distances, 2)
         if code_only:
             loss = 0.
             output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
@@ -155,7 +155,7 @@ class VectorQuantizerEMA(Layer):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmax(-distances, 2)
+        enc_idx = tf.argmin(distances, 2)
         encodings = tf.one_hot(enc_idx, self._num_embeddings)
         if code_only:
             loss = 0.
@@ -215,10 +215,9 @@ class VectorQuantizerNaive(Layer):
     #     input_shape = tf.TensorShape(input_shape)
     #     self.num_fts = input_shape[0]
 
-    def call(self, inputs, code_only=False, fts=None):
-        output = tf.minimum(tf.maximum(inputs - 0.4999999999, 0) * 1_000_000_000, 1)
+    def call(self, inputs, training=None, code_only=False, fts=None):
+        output = tf.minimum(tf.maximum(inputs - 0.499, 0) * 10000, 1)
         if code_only:
-            # output = tf.minimum(tf.maximum(inputs - 0.4999999999, 0) * 1_000_000_000, 1)
             enc_idx = tf.cast(tf.reduce_sum(tf.cast(output, tf.int32) * self.power, axis=-1), tf.int64)
             output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
         return output
