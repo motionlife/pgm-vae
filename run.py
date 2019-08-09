@@ -35,9 +35,9 @@ if __name__ == '__main__':
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
     lyr0 = 40  # max(min(n_var / 2, 200), D)
-    lyr1 = 30  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 20  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 15
+    lyr1 = 32  # max(min(n_var / 3, lyr0), D)
+    lyr2 = 24  # max(min(n_var / 5, lyr1), D)
+    lyr3 = 16
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
