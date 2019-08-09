@@ -7,27 +7,26 @@
 import tensorflow as tf
 from tensorflow.python.keras import Model
 from core.dense import FatDense
-# from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerNaive
-from extern.vqvae import VectorQuantizer, VectorQuantizerEMA
+from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerNaive
+# from extern.vqvae import VectorQuantizer, VectorQuantizerEMA
 
 
 class VqVAE(Model):
     """A customized model derived from Keras model for batch features training"""
 
-    def __init__(self, units, fts, dim, emb, cost=0.25, decay=0.99, ema=True):
+    def __init__(self, units, fts, dim, emb, cost=0.5, decay=0.99, ema=True):
         super(VqVAE, self).__init__(name='vq_vae')
         self.fd0 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
         self.fd1 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
         self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd3 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd4 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
-        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay,
-                                           num_var=fts + 1) if ema else VectorQuantizer(embedding_dim=dim,
-                                                                                        num_embeddings=emb,
-                                                                                        commitment_cost=cost,
-                                                                                        num_var=fts + 1)
-        # self.fd4 = FatDense(dim, activation='sigmoid', kernel_initializer='glorot_uniform')
-        # self.vq_layer = VectorQuantizerNaive(dim, name='naive_vector_quantizer')
+        # self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay,
+        #                                    num_var=fts + 1) if ema else VectorQuantizer(embedding_dim=dim,
+        #                                                                                 num_embeddings=emb,
+        #                                                                                 commitment_cost=cost,
+        #                                                                                 num_var=fts + 1)
+        self.vq_layer = VectorQuantizerNaive(dim, commitment_cost=cost, name='naive_vector_quantizer')
         self.fd5 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd6 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd7 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
@@ -43,7 +42,7 @@ class VqVAE(Model):
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
         x = self.fd4(x, fts=fts)
-        x, loss = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
+        x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)  # x, loss
         if not code_only:
             x = self.fd5(x, fts=fts)
             x = self.fd6(x, fts=fts)
@@ -51,7 +50,7 @@ class VqVAE(Model):
             x = self.fd8(x, fts=fts)
             x = self.fd9(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
-        self.add_loss(loss)
+        # self.add_loss(loss)
         return x
 
     @tf.function
