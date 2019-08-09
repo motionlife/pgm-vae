@@ -9,6 +9,8 @@ from tensorflow.python.keras.layers import Layer
 from tensorflow.python.keras import initializers as init
 from tensorflow.python.training import moving_averages as ma
 
+from core.dense import FatDense
+
 
 class VectorQuantizer(Layer):
     """Re-implementation of VQ-VAE https://arxiv.org/abs/1711.00937.
@@ -205,19 +207,26 @@ class VectorQuantizerEMA(Layer):
 
 
 class VectorQuantizerNaive(Layer):
-    def __init__(self, dim, **kwargs):
+    def __init__(self, dim, commitment_cost, **kwargs):
         self.dim = dim
+        self.commitment_cost = commitment_cost
         self.num_embeddings = 2 ** dim
         self.power = 2 ** tf.range(dim)
+        self.fd = FatDense(dim, activation=None, kernel_initializer='glorot_uniform')
         super(VectorQuantizerNaive, self).__init__(**kwargs)
 
-    # def build(self, input_shape):
-    #     input_shape = tf.TensorShape(input_shape)
-    #     self.num_fts = input_shape[0]
+    def build(self, input_shape):
+        self.built = True
 
     def call(self, inputs, training=None, code_only=False, fts=None):
-        output = tf.minimum(tf.maximum(inputs - 0.499, 0) * 10000, 1)
+        z = self.fd(inputs, fts=fts)
+        z = 1. / (1 + tf.exp(-17 * z))
+        output = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
         if code_only:
+            loss = 0.
             enc_idx = tf.cast(tf.reduce_sum(tf.cast(output, tf.int32) * self.power, axis=-1), tf.int64)
             output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
+        else:
+            loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost
+        self.add_loss(loss)
         return output
