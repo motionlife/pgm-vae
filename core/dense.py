@@ -74,10 +74,10 @@ class FatDense(Layer):
         if input_shape.rank != 3:
             raise ValueError("The input tensor must be rank of 3")
         last_dim = input_shape[-1]
-        num_fts = input_shape[0]
+        num_var = input_shape[0]
         self.kernel = self.add_weight(
             name='kernel',
-            shape=[num_fts, last_dim, self.units],
+            shape=[num_var, last_dim, self.units],
             initializer=self.kernel_initializer,
             regularizer=self.kernel_regularizer,
             constraint=self.kernel_constraint,
@@ -86,7 +86,7 @@ class FatDense(Layer):
         if self.use_bias:
             self.bias = self.add_weight(
                 name='bias',
-                shape=[num_fts, 1, self.units],
+                shape=[num_var, 1, self.units],
                 initializer=self.bias_initializer,
                 regularizer=self.bias_regularizer,
                 constraint=self.bias_constraint,
@@ -97,8 +97,18 @@ class FatDense(Layer):
         self.built = True
 
     def call(self, inputs, fts=None):
-        return self.activation(tf.matmul(inputs, self.kernel) + self.bias) if fts is None else self.activation(
-            tf.matmul(inputs, tf.gather(self.kernel, fts, axis=0)) + tf.gather(self.bias, fts, axis=0))
+        if fts is None:
+            kernel = self.kernel
+            bias = self.bias
+        else:
+            kernel = tf.gather(self.kernel, fts, axis=0)
+            bias = tf.gather(self.bias, fts, axis=0)
+        outputs = tf.matmul(inputs, kernel)
+        if self.use_bias:
+            outputs = outputs + bias
+        if self.activation is not None:
+            return self.activation(outputs)
+        return outputs
 
     def compute_output_shape(self, input_shape):
         return input_shape[:-1].concatenate(self.units)
