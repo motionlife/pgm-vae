@@ -9,8 +9,6 @@ from tensorflow.python.keras.layers import Layer
 from tensorflow.python.keras import initializers as init
 from tensorflow.python.training import moving_averages as ma
 
-from core.dense import FatDense
-
 
 class VectorQuantizer(Layer):
     """Re-implementation of VQ-VAE https://arxiv.org/abs/1711.00937.
@@ -35,7 +33,7 @@ class VectorQuantizer(Layer):
             raise ValueError("The input tensor must be rank of 3")  # (num_fts, batch_size, input_dense_unit)
         num_var = input_shape[0]
         shape = tf.TensorShape([num_var, self._embedding_dim, self._num_embeddings])
-        initializer = init.GlorotUniform()
+        initializer = init.get('he_uniform')
         self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, trainable=True)
         # Make sure to call the `build` method at the end or set self.built = True
         super(VectorQuantizer, self).build(input_shape)
@@ -47,15 +45,15 @@ class VectorQuantizer(Layer):
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
-        if code_only:  # todo: change if condition default to training true
-            loss = 0.
-            output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
-        else:
+        if not code_only:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
             q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
             loss = q_latent_loss + self._commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
+        else:
+            loss = 0.
+            output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
 
         self.add_loss(loss)
         return output
@@ -72,12 +70,6 @@ class VectorQuantizer(Layer):
     def embeddings(self):
         return self._w
 
-    # @staticmethod
-    # def compute_output_shape(input_shape):
-    #     # return tf.TensorShape(input_shape)
-    #     return input_shape
-
-    # Optionally, a layer can be serialized by implementing the get_config method and the from_config class method.
     def get_config(self):
         base_config = super(VectorQuantizer, self).get_config()
         base_config.update({'_embedding_dim': self._embedding_dim,
@@ -129,12 +121,12 @@ class VectorQuantizerEMA(Layer):
         # last_dim = input_shape[-1]
         num_var = input_shape[0]
         shape = tf.TensorShape([num_var, self._embedding_dim, self._num_embeddings])
-        initializer = init.GlorotUniform()
+        initializer = init.get('he_uniform')
         # w is a matrix with an embedding in each column. When training, the embedding
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, use_resource=True)
         self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_var, self._num_embeddings],
-                                                 initializer=tf.constant_initializer(0), use_resource=True)
+                                                 initializer=tf.constant_initializer(0.), use_resource=True)
         self._ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
@@ -159,10 +151,7 @@ class VectorQuantizerEMA(Layer):
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
         encodings = tf.one_hot(enc_idx, self._num_embeddings)
-        if code_only:
-            loss = 0.
-            output = encodings if fts is None else enc_idx
-        else:
+        if not code_only:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
@@ -173,12 +162,16 @@ class VectorQuantizerEMA(Layer):
                 n = tf.reduce_sum(updated_ema_cluster_size, axis=1, keepdims=True)
                 updated_ema_cluster_size = (updated_ema_cluster_size + self._epsilon) / (
                         n + self._num_embeddings * self._epsilon) * n
-                normalised_updated_ema_w = (updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1))
+                normalised_updated_ema_w = updated_ema_w / tf.expand_dims(updated_ema_cluster_size, 1)
                 w.assign(normalised_updated_ema_w)
                 loss = self._commitment_cost * e_latent_loss
             else:
                 loss = self._commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)
+
+        else:
+            loss = 0.
+            output = encodings if fts is None else enc_idx
 
         self.add_loss(loss)
         return output
@@ -213,9 +206,6 @@ class VectorQuantizerNaive(Layer):
         self.num_embeddings = 2 ** dim
         self.power = 2 ** tf.range(dim)
         super(VectorQuantizerNaive, self).__init__(**kwargs)
-
-    def build(self, input_shape):
-        self.built = True
 
     def call(self, inputs, training=None, code_only=False, fts=None):
         z = inputs  # 1. / (1 + tf.exp(-27 * (inputs - 0.5))) # todo: a continuous round function
