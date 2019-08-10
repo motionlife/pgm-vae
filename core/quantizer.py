@@ -47,7 +47,7 @@ class VectorQuantizer(Layer):
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         enc_idx = tf.argmin(distances, 2)
-        if code_only:
+        if code_only:  # todo: change if condition default to training true
             loss = 0.
             output = tf.one_hot(enc_idx, self._num_embeddings) if fts is None else enc_idx
         else:
@@ -212,23 +212,23 @@ class VectorQuantizerNaive(Layer):
         self.commitment_cost = commitment_cost
         self.num_embeddings = 2 ** dim
         self.power = 2 ** tf.range(dim)
-        self.fd = FatDense(dim, activation=None, kernel_initializer='glorot_uniform')
         super(VectorQuantizerNaive, self).__init__(**kwargs)
 
     def build(self, input_shape):
         self.built = True
 
     def call(self, inputs, training=None, code_only=False, fts=None):
-        z = self.fd(inputs, fts=fts)
-        z = 1. / (1 + tf.exp(-50 * z))
-        quantized = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
-        if code_only:
-            # loss = 0.
-            enc_idx = tf.cast(tf.reduce_sum(tf.cast(quantized, tf.int32) * self.power, axis=-1), tf.int64)
-            output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
-        else:
-            # loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost
+        z = 1. / (1 + tf.exp(-37 * (inputs - 0.5)))
+        # quantized = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
+        if not code_only:
+            # todo: penalize z concentrate new 0, encourage them spread on two ends (-inf or inf)
+            # loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost ???
+            loss = self.commitment_cost * tf.reduce_mean(-(z - 0.5) ** 2)
             output = z
-        # self.add_loss(loss)
-        # todo: should penalize z concentrate new 0, encourage them spread on two ends (-inf or inf)
+        else:
+            loss = 0.
+            enc_idx = tf.cast(tf.reduce_sum(tf.cast(tf.round(z), tf.int32) * self.power, axis=-1), tf.int64)
+            output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
+
+        self.add_loss(loss)
         return output
