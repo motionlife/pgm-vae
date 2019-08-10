@@ -34,11 +34,11 @@ if __name__ == '__main__':
     identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
-    lyr0 = 24  # max(min(n_var / 2, 200), D)
-    lyr1 = 32  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 24  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 20
-    lyr4 = 16
+    lyr0 = 16  # max(min(n_var / 2, 200), D)
+    lyr1 = 15  # max(min(n_var / 3, lyr0), D)
+    lyr2 = 15  # max(min(n_var / 5, lyr1), D)
+    lyr3 = 14
+    lyr4 = 14
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
@@ -52,7 +52,7 @@ if __name__ == '__main__':
         return make_xs(ys), ys
 
     train_x, train_y = get_data('train')
-    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3, lyr4], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
+    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3, lyr4], nvar=n_var, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
