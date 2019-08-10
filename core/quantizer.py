@@ -220,13 +220,15 @@ class VectorQuantizerNaive(Layer):
 
     def call(self, inputs, training=None, code_only=False, fts=None):
         z = self.fd(inputs, fts=fts)
-        z = 1. / (1 + tf.exp(-17 * z))
-        output = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
+        z = 1. / (1 + tf.exp(-50 * z))
+        quantized = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
         if code_only:
-            loss = 0.
-            enc_idx = tf.cast(tf.reduce_sum(tf.cast(output, tf.int32) * self.power, axis=-1), tf.int64)
+            # loss = 0.
+            enc_idx = tf.cast(tf.reduce_sum(tf.cast(quantized, tf.int32) * self.power, axis=-1), tf.int64)
             output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
         else:
-            loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost
-        self.add_loss(loss)
+            # loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost
+            output = z
+        # self.add_loss(loss)
+        # todo: should penalize z concentrate new 0, encourage them spread on two ends (-inf or inf)
         return output
