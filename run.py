@@ -34,10 +34,11 @@ if __name__ == '__main__':
     identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
-    lyr0 = 40  # max(min(n_var / 2, 200), D)
+    lyr0 = 24  # max(min(n_var / 2, 200), D)
     lyr1 = 32  # max(min(n_var / 3, lyr0), D)
     lyr2 = 24  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 16
+    lyr3 = 20
+    lyr4 = 16
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
@@ -51,9 +52,9 @@ if __name__ == '__main__':
         return make_xs(ys), ys
 
     train_x, train_y = get_data('train')
-    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
+    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3, lyr4], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
-    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
@@ -66,7 +67,7 @@ if __name__ == '__main__':
     pll_valid = model.pseudo_log_likelihood(*get_data('valid'))
     pll_test = model.pseudo_log_likelihood(test_x, test_y)
     # calculate cmll
-    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=200, verbose=vb)
+    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 4, num_smp=3000, burn_in=150, verbose=vb)
 
     # store and print output result
     out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{cmll}'
