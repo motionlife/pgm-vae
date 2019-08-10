@@ -218,13 +218,13 @@ class VectorQuantizerNaive(Layer):
         self.built = True
 
     def call(self, inputs, training=None, code_only=False, fts=None):
-        z = 1. / (1 + tf.exp(-37 * (inputs - 0.5)))
+        z = inputs  # 1. / (1 + tf.exp(-27 * (inputs - 0.5))) # todo: a continuous round function
         # quantized = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
         if not code_only:
             # todo: penalize z concentrate new 0, encourage them spread on two ends (-inf or inf)
             # loss = -tf.reduce_sum(z * tf.math.log(z + 1e-10)) * self.commitment_cost ???
             loss = self.commitment_cost * tf.reduce_mean(-(z - 0.5) ** 2)
-            output = z
+            output = tf.minimum(tf.maximum(z - 0.499999, 0) * 1e7, 1)
         else:
             loss = 0.
             enc_idx = tf.cast(tf.reduce_sum(tf.cast(tf.round(z), tf.int32) * self.power, axis=-1), tf.int64)
