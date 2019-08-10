@@ -39,15 +39,15 @@ class VectorQuantizer(base.Module):
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         encoding_indices = tf.argmin(distances, 2)
-        if code_only:
-            loss = 0.
-            output = tf.one_hot(encoding_indices, self.num_embeddings) if fts is None else encoding_indices
-        else:
+        if not code_only:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), encoding_indices, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
             loss = q_latent_loss + self.commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)
+        else:
+            loss = 0.
+            output = tf.one_hot(encoding_indices, self.num_embeddings) if fts is None else encoding_indices
 
         return output, loss
 
@@ -73,7 +73,7 @@ class VectorQuantizerEMA(base.Module):
         self.ema_cluster_size.initialize(tf.zeros([num_var, num_embeddings], dtype=dtype))
 
         self.ema_dw = moving_averages.ExponentialMovingAverage(decay=self.decay, name='ema_dw')
-        self.ema_dw.initialize(self.embeddings)
+        self.ema_dw.initialize(self.embeddings.read_value())
 
     def __call__(self, inputs, training=None, code_only=False, fts=None):
         w = self.embeddings if fts is None else tf.gather(self.embeddings, fts, axis=0)
@@ -82,10 +82,8 @@ class VectorQuantizerEMA(base.Module):
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         encoding_indices = tf.argmin(distances, 2)
         encodings = tf.one_hot(encoding_indices, self.num_embeddings)
-        if code_only:
-            loss = 0.
-            output = encodings if fts is None else encoding_indices
-        else:
+
+        if not code_only:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), encoding_indices, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
@@ -100,5 +98,8 @@ class VectorQuantizerEMA(base.Module):
             else:
                 loss = self.commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)
+        else:
+            loss = 0.
+            output = encodings if fts is None else encoding_indices
 
         return output, loss
