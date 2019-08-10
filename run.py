@@ -54,7 +54,7 @@ if __name__ == '__main__':
     train_x, train_y = get_data('train')
     model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3, lyr4], fts=n_var - 1, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
-    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
     # model.save_weights(log_dir + '/model', save_format='tf')
 
