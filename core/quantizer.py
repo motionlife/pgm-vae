@@ -19,7 +19,7 @@ class VectorQuantizer(Layer):
         commitment_cost: scalar which controls the weighting of the loss terms (beta)
     """
 
-    def __init__(self, embedding_dim, num_embeddings, commitment_cost, **kwargs):
+    def __init__(self, embedding_dim, num_embeddings, commitment_cost, num_var, **kwargs):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
         self._commitment_cost = commitment_cost
@@ -105,7 +105,7 @@ class VectorQuantizerEMA(Layer):
       epsilon: small float constant to avoid numerical instability.
     """
 
-    def __init__(self, embedding_dim, num_embeddings, commitment_cost, decay,
+    def __init__(self, embedding_dim, num_embeddings, commitment_cost, decay, num_var,
                  epsilon=1e-5, **kwargs):
         self._embedding_dim = embedding_dim
         self._num_embeddings = num_embeddings
@@ -126,7 +126,7 @@ class VectorQuantizerEMA(Layer):
         # is assigned to be the average of all inputs assigned to that  embedding.
         self._w = self.add_weight(name='embeddings', shape=shape, initializer=initializer, use_resource=True)
         self._ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_var, self._num_embeddings],
-                                                 initializer=tf.constant_initializer(0.), use_resource=True)
+                                                 initializer=init.get('zeros'), use_resource=True)
         self._ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
         self._ema_w.assign(self._w.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)

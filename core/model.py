@@ -7,8 +7,8 @@
 import tensorflow as tf
 from tensorflow.python.keras import Model
 from core.dense import FatDense
-from extern.vqvae import VectorQuantizer, VectorQuantizerEMA
-# from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerNaive
+# from extern.vqvae import VectorQuantizer, VectorQuantizerEMA
+from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerNaive
 
 
 class VqVAE(Model):
@@ -32,8 +32,8 @@ class VqVAE(Model):
         self.fd7 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
         self.fd8 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
         self.fd9 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd10 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fd11 = FatDense(nvar - 1, activation='sigmoid', kernel_initializer='glorot_uniform')
+        self.fdx = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
+        self.fdo = FatDense(nvar - 1, activation='sigmoid', kernel_initializer='glorot_uniform')
         self.dist = tf.zeros([nvar, emb], dtype=tf.float64)
 
     def call(self, inputs, training=None, code_only=False, fts=None):
@@ -45,16 +45,16 @@ class VqVAE(Model):
         x = self.fd3(x, fts=fts)
         x = self.fd4(x, fts=fts)
         x = self.fd5(x, fts=fts)
-        x, loss = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
+        x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
         if not code_only:
             x = self.fd6(x, fts=fts)
             x = self.fd7(x, fts=fts)
             x = self.fd8(x, fts=fts)
             x = self.fd9(x, fts=fts)
-            x = self.fd10(x, fts=fts)
-            x = self.fd11(x, fts=fts)
+            x = self.fdx(x, fts=fts)
+            x = self.fdo(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
-            self.add_loss(loss)
+            # self.add_loss(loss)
         return x
 
     @tf.function

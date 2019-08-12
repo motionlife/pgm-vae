@@ -94,9 +94,7 @@ class VectorQuantizerEMA(base.Module):
                 updated_ema_cluster_size = ((updated_ema_cluster_size + self.epsilon) / (n + self.num_embeddings * self.epsilon) * n)
                 normalised_updated_ema_w = (updated_ema_dw / tf.expand_dims(updated_ema_cluster_size, 1))
                 w.assign(normalised_updated_ema_w)
-                loss = self.commitment_cost * e_latent_loss
-            else:
-                loss = self.commitment_cost * e_latent_loss
+            loss = self.commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)
         else:
             loss = 0.
