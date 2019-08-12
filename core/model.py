@@ -45,7 +45,7 @@ class VqVAE(Model):
         x = self.fd3(x, fts=fts)
         x = self.fd4(x, fts=fts)
         x = self.fd5(x, fts=fts)
-        x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
+        # x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
         if not code_only:
             x = self.fd6(x, fts=fts)
             x = self.fd7(x, fts=fts)

@@ -12,7 +12,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch', '-b', type=int, default=128, help='training batch size')
     parser.add_argument('--epoch', '-e', type=int, default=200, help='number of epochs for training')
     parser.add_argument('--rate', '-r', type=float, default=0.001, help='learning rate')
-    parser.add_argument('--cost', '-c', type=float, default=0.5, help='commitment cost')
+    parser.add_argument('--cost', '-c', type=float, default=0.25, help='commitment cost')
     parser.add_argument('--ema', '-m', action='store_true', help='using exponential moving average')
     parser.add_argument('--decay', '-g', type=float, default=0.99, help='EMA decay rate')
     parser.add_argument('--seed', '-s', type=int, default=0, help='integer for random seed')
@@ -34,11 +34,11 @@ if __name__ == '__main__':
     identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
     n_var = bl[name]['vars']
-    lyr0 = 64  # max(min(n_var / 2, 200), D)
-    lyr1 = 128  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 128  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 128
-    lyr4 = 64
+    lyr0 = 14  # max(min(n_var / 2, 200), D)
+    lyr1 = 14  # max(min(n_var / 3, lyr0), D)
+    lyr2 = 13  # max(min(n_var / 5, lyr1), D)
+    lyr3 = 12
+    lyr4 = 11
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
