@@ -44,27 +44,19 @@ class VectorQuantizer(Layer):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmin(distances, 2)
+        encoding_indices = tf.argmin(distances, 2)
         if not code_only:
-            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), encoding_indices, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)  # commitment loss
             q_latent_loss = tf.reduce_mean((quantized - tf.stop_gradient(inputs)) ** 2)
             loss = q_latent_loss + self.commitment_cost * e_latent_loss
             output = inputs + tf.stop_gradient(quantized - inputs)  # grad(Zq(x)) = grad(Ze(x))
         else:
             loss = 0.
-            output = tf.one_hot(enc_idx, self.num_embeddings) if fts is None else enc_idx
+            output = tf.one_hot(encoding_indices, self.num_embeddings) if fts is None else encoding_indices
 
         self.add_loss(loss)
         return output
-        # encodings = tf.one_hot(enc_idx, self._num_embeddings)
-        # avg_probs = tf.reduce_mean(encodings, 0)
-        # perplexity = tf.math.exp(- tf.reduce_sum(avg_probs * tf.math.log(avg_probs + 1e-10))) # perplexity = exp(H(p))
-        # self._pkgs = {'quantized': quantized,
-        #               'loss': loss,
-        #               'perplexity': perplexity,
-        #               'encodings': encodings,
-        #               'enc_idx': enc_idx, }
 
     def get_config(self):
         base_config = super(VectorQuantizer, self).get_config()
@@ -118,10 +110,10 @@ class VectorQuantizerEMA(Layer):
         num_var = input_shape[0]
         shape = tf.TensorShape([num_var, self.embedding_dim, self.num_embeddings])
         initializer = init.VarianceScaling(distribution='uniform')
-        self.embeddings = self.add_weight(name='embeddings', shape=shape, initializer=initializer, use_resource=True)
+        self.embeddings = self.add_weight(name='embeddings', shape=shape, initializer=initializer)
         self.ema_cluster_size = self.add_weight(name='ema_cluster_size', shape=[num_var, self.num_embeddings],
-                                                initializer=init.get('zeros'), use_resource=True)
-        self.ema_w = self.add_weight(name='ema_dw', shape=shape, use_resource=True)
+                                                initializer=init.get('zeros'))
+        self.ema_w = self.add_weight(name='ema_dw', shape=shape)
         self.ema_w.assign(self.embeddings.read_value())
         super(VectorQuantizerEMA, self).build(input_shape)
 
@@ -143,10 +135,10 @@ class VectorQuantizerEMA(Layer):
         distances = (tf.reduce_sum(inputs ** 2, 2, keepdims=True)
                      - 2 * tf.matmul(inputs, w)
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
-        enc_idx = tf.argmin(distances, 2)
-        encodings = tf.one_hot(enc_idx, self.num_embeddings)
+        encoding_indices = tf.argmin(distances, 2)
+        encodings = tf.one_hot(encoding_indices, self.num_embeddings)
         if not code_only:
-            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), enc_idx, axis=1, batch_dims=1)
+            quantized = tf.gather(tf.transpose(w, [0, 2, 1]), encoding_indices, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
             if training:
                 updated_ema_cluster_size = ma.assign_moving_average(
@@ -164,7 +156,7 @@ class VectorQuantizerEMA(Layer):
             output = inputs + tf.stop_gradient(quantized - inputs)
         else:
             loss = 0.
-            output = encodings if fts is None else enc_idx
+            output = encodings if fts is None else encoding_indices
 
         self.add_loss(loss)
         return output

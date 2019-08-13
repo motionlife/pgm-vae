@@ -82,7 +82,6 @@ class VectorQuantizerEMA(base.Module):
                      + tf.reduce_sum(w ** 2, 1, keepdims=True))
         encoding_indices = tf.argmin(distances, 2)
         encodings = tf.one_hot(encoding_indices, self.num_embeddings)
-
         if not code_only:
             quantized = tf.gather(tf.transpose(w, [0, 2, 1]), encoding_indices, axis=1, batch_dims=1)
             e_latent_loss = tf.reduce_mean((tf.stop_gradient(quantized) - inputs) ** 2)
