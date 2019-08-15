@@ -40,13 +40,13 @@
 #0.25 0.5 1 ::: \
 #17
 
-parallel --bar --retry-failed --joblog logs/log_stu -j2 \
-'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=-1 --ema' ::: \
-50-17-8 students_03_02-0000 ::: \
-200 ::: \
-70 100 ::: \
-128 ::: \
-250 ::: \
-0.0005 0.001 ::: \
-0.25 0.5 1 ::: \
+parallel --bar --retry-failed --joblog logs/log_nltcs2 -j1 \
+'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=0 --note=selu_he' ::: \
+nltcs ::: \
+1400 ::: \
+10 ::: \
+64 32 ::: \
+1500 ::: \
+0.003 0.004 0.006 0.007 ::: \
+0.25 ::: \
 7

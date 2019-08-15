@@ -18,11 +18,10 @@ if __name__ == '__main__':
     parser.add_argument('--seed', '-s', type=int, default=0, help='integer for random seed')
     parser.add_argument('--device', '-u', type=int, default=0, help='which GPU to use, -1 means only use CPU')
     parser.add_argument('--verbose', '-v', action='store_true', help='verbose mode when do model fitting and sampling')
+    parser.add_argument('--note', '-t', type=str, default='', help='note for other conditions')
     args = parser.parse_args()
-    name, K, D, bs, epochs, learn_rate, beta, ema, gamma, seed, device, vb = (args.name, args.embedding, args.dim,
-                                                                              args.batch, args.epoch, args.rate,
-                                                                              args.cost, args.ema, args.decay,
-                                                                              args.seed, args.device, args.verbose)
+    name, K, D, bs, epochs, learn_rate, beta, ema, gamma, seed, device, vb, note = (args.name, args.embedding, args.dim,
+    args.batch, args.epoch, args.rate, args.cost, args.ema, args.decay, args.seed, args.device, args.verbose, args.note)
     if device == -1:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # training on cpu
     else:
@@ -31,14 +30,14 @@ if __name__ == '__main__':
         # for g in gpus:
         #     tf.config.experimental.set_memory_growth(g, True)  # only grow the memory usage as is needed
     tf.random.set_seed(seed)
-    identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_gma-{gamma}_sd-{seed}"
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", identifier), write_graph=False)]
+    identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_ema-{ema}_gma-{gamma}_sd-{seed}-{note}"
+    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", "tuning", identifier),
+                                                write_graph=False)]
     n_var = bl[name]['vars']
     lyr0 = 14  # max(min(n_var / 2, 200), D)
-    lyr1 = 14  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 13  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 12
-    lyr4 = 11
+    lyr1 = 13  # max(min(n_var / 3, lyr0), D)
+    lyr2 = 12  # max(min(n_var / 5, lyr1), D)
+    lyr3 = 11
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
@@ -52,7 +51,7 @@ if __name__ == '__main__':
         return make_xs(ys), ys
 
     train_x, train_y = get_data('train')
-    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3, lyr4], nvar=n_var, dim=D, emb=K, cost=beta, decay=gamma, ema=ema)
+    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3], nvar=n_var, dim=D, k=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)

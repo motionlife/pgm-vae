@@ -14,27 +14,27 @@ from core.quantizer import VectorQuantizerEMA, VectorQuantizer, VectorQuantizerN
 class VqVAE(Model):
     """A customized model derived from Keras model for batch features training"""
 
-    def __init__(self, units, nvar, dim, emb, cost=0.5, decay=0.99, ema=True):
+    def __init__(self, units, nvar, dim, k, cost=0.5, decay=0.99, ema=True):
         super(VqVAE, self).__init__(name='vq_vae')
-        self.fd0 = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fd1 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fd2 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
-        self.fd3 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
-        self.fd4 = FatDense(units[4], activation='relu', kernel_initializer='he_uniform')
-        self.fd5 = FatDense(dim, activation='relu', kernel_initializer='he_uniform')
-        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=emb, commitment_cost=cost, decay=decay,
+        act = 'selu'
+        init = 'he_uniform'
+        self.fd0 = FatDense(units[0], activation=act, kernel_initializer=init)
+        self.fd1 = FatDense(units[1], activation=act, kernel_initializer=init)
+        self.fd2 = FatDense(units[2], activation=act, kernel_initializer=init)
+        self.fd3 = FatDense(units[3], activation=act, kernel_initializer=init)
+        self.fd4 = FatDense(dim, activation=act, kernel_initializer=init)
+        self.vq_layer = VectorQuantizerEMA(embedding_dim=dim, num_embeddings=k, commitment_cost=cost, decay=decay,
                                            num_var=nvar) if ema else VectorQuantizer(embedding_dim=dim,
-                                                                                     num_embeddings=emb,
+                                                                                     num_embeddings=k,
                                                                                      commitment_cost=cost,
                                                                                      num_var=nvar)
         # self.vq_layer = VectorQuantizerNaive(dim, commitment_cost=cost, name='naive_vector_quantizer')
-        self.fd6 = FatDense(units[4], activation='relu', kernel_initializer='he_uniform')
-        self.fd7 = FatDense(units[3], activation='relu', kernel_initializer='he_uniform')
-        self.fd8 = FatDense(units[2], activation='relu', kernel_initializer='he_uniform')
-        self.fd9 = FatDense(units[1], activation='relu', kernel_initializer='he_uniform')
-        self.fdx = FatDense(units[0], activation='relu', kernel_initializer='he_uniform')
-        self.fdo = FatDense(nvar - 1, activation='sigmoid', kernel_initializer='glorot_uniform')
-        self.dist = tf.zeros([nvar, emb], dtype=tf.float64)
+        self.fd5 = FatDense(units[3], activation=act, kernel_initializer=init)
+        self.fd6 = FatDense(units[2], activation=act, kernel_initializer=init)
+        self.fd7 = FatDense(units[1], activation=act, kernel_initializer=init)
+        self.fd8 = FatDense(units[0], activation=act, kernel_initializer=init)
+        self.fd9 = FatDense(nvar - 1, activation='sigmoid', kernel_initializer='glorot_uniform')
+        self.dist = tf.zeros([nvar, k], dtype=tf.float64)
 
     def call(self, inputs, training=None, code_only=False, fts=None):
         # switch feature and batch dimension
@@ -44,17 +44,14 @@ class VqVAE(Model):
         x = self.fd2(x, fts=fts)
         x = self.fd3(x, fts=fts)
         x = self.fd4(x, fts=fts)
-        x = self.fd5(x, fts=fts)
-        # x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
+        x = self.vq_layer(x, training=training, code_only=code_only, fts=fts)
         if not code_only:
+            x = self.fd5(x, fts=fts)
             x = self.fd6(x, fts=fts)
             x = self.fd7(x, fts=fts)
             x = self.fd8(x, fts=fts)
             x = self.fd9(x, fts=fts)
-            x = self.fdx(x, fts=fts)
-            x = self.fdo(x, fts=fts)
             x = tf.transpose(x, [1, 0, 2])
-            # self.add_loss(loss)
         return x
 
     @tf.function
@@ -148,7 +145,7 @@ if __name__ == '__main__':
     num_test_data = 5000
     data = tf.cast(tf.random.uniform([num_test_data, num_vars], minval=0, maxval=2, dtype=tf.int32), tf.float32)
     train_x = tf.stack([tf.reshape(tf.tile(x, [num_vars - 1]), [num_vars, -1]) for x in data])
-    model = VqVAE(units=[70, 50, 30], nvar=num_vars - 1, dim=D, emb=K, cost=0.25, decay=0.99, ema=True)
+    model = VqVAE(units=[70, 50, 30], nvar=num_vars - 1, dim=D, k=K, cost=0.25, decay=0.99, ema=True)
     optimizer = tf.keras.optimizers.Adam(lr=0.001)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
     model.fit(train_x, train_x, batch_size=256, epochs=2, verbose=1)
