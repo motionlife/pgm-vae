@@ -31,7 +31,7 @@ if __name__ == '__main__':
     train_x = train_xs.batch(batch_size).prefetch(100)
     train_y = train_xy.map(lambda x: tf.reverse(tf.cast(x, tf.int32), [0])).batch(batch_size).prefetch(100)
 
-    model = VqVAE(units=dense_units, fts=num_vars - 1, dim=D, k=K, cost=beta, decay=gamma)
+    model = VqVAE(units=dense_units, nvar=num_vars - 1, dim=D, k=K, cost=beta, decay=gamma)
     opt = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=opt, loss='mse', metrics=['mae'])  # loss=mse better than categorical entropy?
     model.fit(train_xx, epochs=epochs, callbacks=callbacks, shuffle=False)
