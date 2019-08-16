@@ -70,8 +70,8 @@ class VqVAE(Model):
     def cpt(self, x, y):
         """return the distribution of p(y=1|x=k) from training data"""
         n1, n0 = self.count(x, y)
-        n1 = tf.cast(n1 + 1, tf.float64)  # shape=(num_vars, K), Additive(Laplace) smoothing
-        n0 = tf.cast(n0 + 1, tf.float64)
+        n1 = tf.cast(n1 + 0.8, tf.float64)  # shape=(num_vars, K), Additive(Laplace) smoothing
+        n0 = tf.cast(n0 + 0.8, tf.float64)
         return n1 / (n1 + n0)
 
     @tf.function

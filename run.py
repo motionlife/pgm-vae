@@ -1,5 +1,7 @@
 import os
 import argparse
+import numpy as np
+import random as rdn
 import tensorflow as tf
 from core.model import VqVAE
 from baseline import baseline as bl
@@ -29,15 +31,18 @@ if __name__ == '__main__':
         tf.config.experimental.set_visible_devices(gpus[device], 'GPU')
         # for g in gpus:
         #     tf.config.experimental.set_memory_growth(g, True)  # only grow the memory usage as is needed
+    os.environ['PYTHONHASHSEED'] = '0'
+    rdn.seed(seed)
+    np.random.seed(seed)
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_ema-{ema}_gma-{gamma}_sd-{seed}-{note}"
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=os.path.join(os.curdir, "logs", "tuning", identifier),
-                                                write_graph=False)]
+    log_dir = os.path.join(os.curdir, "logs", "tuning", "d5", identifier)
+    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir, write_graph=False)]
     n_var = bl[name]['vars']
-    lyr0 = 14  # max(min(n_var / 2, 200), D)
-    lyr1 = 13  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 12  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 11
+    lyr0 = 12  # max(min(n_var / 2, 200), D)
+    lyr1 = 10  # max(min(n_var / 3, lyr0), D)
+    lyr2 = 8  # max(min(n_var / 5, lyr1), D)
+    lyr3 = 6
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
@@ -55,7 +60,7 @@ if __name__ == '__main__':
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
-    # model.save_weights(log_dir + '/model', save_format='tf')
+    model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
     model.dist = model.cpt(train_x, train_y)

@@ -40,13 +40,13 @@
 #0.25 0.5 1 ::: \
 #17
 
-parallel --bar --retry-failed --joblog logs/log_nltcs2 -j1 \
-'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=0 --note=selu_he' ::: \
+parallel --bar --retry-failed --joblog logs/log_nltcs4 -j1 \
+'python run.py --name={1} -k={2} --dim={3} --batch={4} --epoch={5} --rate={6} --cost={7} --seed={8} --device=-1 --note=12_10_8_6' ::: \
 nltcs ::: \
-1400 ::: \
-10 ::: \
-64 32 ::: \
+1024 2048 ::: \
+5 ::: \
+32 64 ::: \
 1500 ::: \
-0.003 0.004 0.006 0.007 ::: \
-0.25 ::: \
-7
+0.004 ::: \
+0.2 0.25 0.3 ::: \
+9
