@@ -54,33 +54,46 @@ class VqVAE(Model):
             x = tf.transpose(x, [1, 0, 2])
         return x
 
-    @tf.function
+    # @tf.function
     def count(self, x, y):
         """return the total number of (y=1, x=k) and (y=0, x=k) from data"""
-        y = tf.transpose(y)
 
-        def fn(e): return tf.reduce_sum(tf.boolean_mask(e[0], e[1]), 0)
+        def fn(e):
+            return tf.reduce_sum(tf.boolean_mask(e[0], e[1]), 0)
 
-        code = self(x, code_only=True)  # shape=(num_vars, batch_size, K)
-        n1 = tf.map_fn(fn, elems=[code, y], dtype=code.dtype, back_prop=False)
-        n0 = tf.map_fn(fn, elems=[code, 1 - y], dtype=code.dtype, back_prop=False)
-        return n1, n0
+        b = 200
+        n1, n0 = tf.zeros([1]), tf.zeros([1])
+        q, r = divmod(y.shape[0], b)
+        for i in tf.range(q):
+            y_ = tf.transpose(y[i * b:(i + 1) * b, :])
+            code = self(x[i * b:(i + 1) * b, :, :], code_only=True)  # shape=(num_vars, batch_size, K)
+            n1_ = tf.map_fn(fn, elems=[code, y_], dtype=code.dtype, back_prop=False)
+            n0_ = tf.map_fn(fn, elems=[code, 1 - y_], dtype=code.dtype, back_prop=False)
+            n1 += n1_
+            n0 += n0_
+        if r > 0:
+            y_ = tf.transpose(y[q * b:q * b + r, :])
+            code = self(x[q * b:q * b + r, :, :], code_only=True)  # shape=(num_vars, batch_size, K)
+            n1_ = tf.map_fn(fn, elems=[code, y_], dtype=code.dtype, back_prop=False)
+            n0_ = tf.map_fn(fn, elems=[code, 1 - y_], dtype=code.dtype, back_prop=False)
+            n1 += n1_
+            n0 += n0_
 
-    @tf.function
+        return tf.cast(n1, tf.float64), tf.cast(n0, tf.float64)
+
+    # @tf.function
     def cpt(self, x, y):
         """return the distribution of p(y=1|x=k) from training data"""
         n1, n0 = self.count(x, y)
-        n1 = tf.cast(n1 + 0.8, tf.float64)  # shape=(num_vars, K), Additive(Laplace) smoothing
-        n0 = tf.cast(n0 + 0.8, tf.float64)
-        return n1 / (n1 + n0)
+        return (n1 + 0.8) / (n1 + n0 + 1.6)  # shape=(num_vars, K), Additive(Laplace) smoothing
 
-    @tf.function
+    # @tf.function
     def pseudo_log_likelihood(self, x, y):
         """calculate the average pseudo log likelihood for input data"""
         lp1 = tf.math.log(self.dist + 1e-10)  # log_p(y=1|x=k)
         lp0 = tf.math.log(1 - self.dist + 1e-10)  # log_p(y=0|x=k)
         n1, n0 = self.count(x, y)
-        return tf.reduce_sum(tf.cast(n1, tf.float64) * lp1 + tf.cast(n0, tf.float64) * lp0) / y.shape[0]
+        return tf.reduce_sum(n1 * lp1 + n0 * lp0) / y.shape[0]
 
     @tf.function
     def get_probability(self, x, fts=None):
