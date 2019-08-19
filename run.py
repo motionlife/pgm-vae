@@ -36,13 +36,13 @@ if __name__ == '__main__':
     np.random.seed(seed)
     tf.random.set_seed(seed)
     identifier = f"{name}_K-{K}_D-{D}_bs-{bs}_epk-{epochs}_lr-{learn_rate}_bta-{beta}_ema-{ema}_gma-{gamma}_sd-{seed}-{note}"
-    log_dir = os.path.join(os.curdir, "logs", "tuning", "d5", identifier)
+    log_dir = os.path.join(os.curdir, "logs", "tuning", identifier)
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=log_dir, write_graph=False)]
     n_var = bl[name]['vars']
-    lyr0 = 12  # max(min(n_var / 2, 200), D)
-    lyr1 = 10  # max(min(n_var / 3, lyr0), D)
-    lyr2 = 8  # max(min(n_var / 5, lyr1), D)
-    lyr3 = 6
+    # lyr0 = 40  # max(min(n_var / 2, 200), D)
+    # lyr1 = 30  # max(min(n_var / 3, lyr0), D)
+    # lyr2 = 20  # max(min(n_var / 5, lyr1), D)
+    # lyr3 = 15
     idx = tf.constant([i for i in range(n_var ** 2) if i % (n_var + 1) != 0])
 
     @tf.function
@@ -56,11 +56,11 @@ if __name__ == '__main__':
         return make_xs(ys), ys
 
     train_x, train_y = get_data('train')
-    model = VqVAE(units=[lyr0, lyr1, lyr2, lyr3], nvar=n_var, dim=D, k=K, cost=beta, decay=gamma, ema=ema)
+    model = VqVAE(units=bl[name]['units'], nvar=n_var, dim=D, k=K, cost=beta, decay=gamma, ema=ema)
     optimizer = tf.keras.optimizers.Adam(lr=learn_rate)
     model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])  # categorical_crossentropy, binary_crossentropy
     model.fit(train_x, train_x, batch_size=bs, epochs=epochs, callbacks=callbacks, verbose=vb)
-    model.save_weights(log_dir + '/model', save_format='tf')
+    # model.save_weights(log_dir + '/model', save_format='tf')
 
     # get the conditional distribution from training data
     model.dist = model.cpt(train_x, train_y)
@@ -71,10 +71,10 @@ if __name__ == '__main__':
     pll_valid = model.pseudo_log_likelihood(*get_data('valid'))
     pll_test = model.pseudo_log_likelihood(test_x, test_y)
     # calculate cmll
-    cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 4, num_smp=3000, burn_in=150, verbose=vb)
+    # cmll = model.conditional_marginal_log_likelihood(test_y, p1=n_var // 10, num_smp=3000, burn_in=150, verbose=vb)
 
     # store and print output result
-    out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{cmll}'
+    out = f' pll-train:{pll_train} pll-valid:{pll_valid} pll-test:{pll_test} cmll-test:{1}'
     with open('result.txt', 'a') as f:
         f.write(identifier + out + '\n')
     print(identifier + out)

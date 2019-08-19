@@ -90,8 +90,8 @@ class VqVAE(Model):
     # @tf.function
     def pseudo_log_likelihood(self, x, y):
         """calculate the average pseudo log likelihood for input data"""
-        lp1 = tf.math.log(self.dist + 1e-10)  # log_p(y=1|x=k)
-        lp0 = tf.math.log(1 - self.dist + 1e-10)  # log_p(y=0|x=k)
+        lp1 = tf.math.log(self.dist + 1e-5)  # log_p(y=1|x=k)
+        lp0 = tf.math.log(1 - self.dist + 1e-5)  # log_p(y=0|x=k)
         n1, n0 = self.count(x, y)
         return tf.reduce_sum(n1 * lp1 + n0 * lp0) / y.shape[0]
 
@@ -145,7 +145,7 @@ class VqVAE(Model):
         valid = num_smp - burn_in
         valid_end = valid * p1 // tf.cast(vol[-1], tf.float32),
         cmll = cnt / tf.concat([tf.ones([1, dim - vol[-1]]) * valid, tf.ones([1, vol[-1]]) * valid_end], 1)
-        return tf.reduce_sum(x * tf.math.log(cmll + 1e-10) + (1 - x) * tf.math.log(1 - cmll + 1e-10)) / batch_size
+        return tf.reduce_sum(x * tf.math.log(cmll + 1e-5) + (1 - x) * tf.math.log(1 - cmll + 1e-5)) / batch_size
 
 
 if __name__ == '__main__':
