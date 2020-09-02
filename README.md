@@ -34,4 +34,4 @@ Author: Hao Xiong (haoxiong@outlook.com)
 
 ##Required package:
  
- Tensorflow 2.0 beta1
+ Tensorflow 2.x
